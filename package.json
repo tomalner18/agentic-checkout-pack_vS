@@ -1,0 +1,23 @@
+{
+  "name": "halcy-agentic-checkout-pack",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "hotel": "node mock-hotel/server.mjs",
+    "chat": "tsx starter/chat/server.ts",
+    "typecheck": "tsc --noEmit",
+    "setup": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
