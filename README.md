@@ -6,6 +6,8 @@
 
 Everything below happens **inside this folder**. A terminal opened anywhere else will tell you it can't find a `package.json`. You'll need Node 20 or newer (`node -v` to check).
 
+For first-time configuration, create a gitignored `.env` using `.env.example` and set `ANTHROPIC_API_KEY` there. Preserve an existing `.env`. The default uses direct Claude and a visible browser; `CHAT_PORT` can select an unused chat port without restarting an existing checkout.
+
 ```bash
 npm install
 npm run setup     # downloads the Chromium build Playwright drives (once)
@@ -14,7 +16,7 @@ npm run chat      # terminal 2: the chat; open http://localhost:4200
 npm run typecheck
 ```
 
-Pick one of the example asks under the message box (or write your own) and send it. The starter agent opens the hotel, takes one look, and shows you a card.
+Pick one of the example asks under the message box (or write your own) and send it. The agent searches the hotel, shows observed room/rate choices, and prepares the one you select. Review the complete quote in chat before agreeing. Then use the same visible hotel browser window for card entry, bank verification, and final submission. Return to chat and press **Check booking** to request confirmation verification. The chat’s **Stop** control ends assistance; it does not cancel a hotel reservation.
 
 - `HEADLESS=1 npm run chat` runs the browser without a visible window. On Windows PowerShell: `$env:HEADLESS="1"; npm run chat`.
 - Use `localhost` addresses, not `127.0.0.1`: the hotel and its payment provider check each other's addresses when they talk.
@@ -48,17 +50,29 @@ Any future expiry (e.g. `12/30`) and any 3-digit CVC. These are the only cards t
 
 | File                     | What it gives you                                                                                                                                         |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `starter/agent.ts`       | **Your agent.** Called with each new message from the traveller, plus a `chat` to talk back and a context. Today it takes one look at the hotel and stops |
+| `starter/agent.ts`       | Booking preparation, selected-rate quote validation, private handoff and local hotel-confirmation verification |
 | `starter/chat/`          | The chat server (`npm run chat`) and its phone-width page. `chat.say`, `chat.card`, `chat.choose` (a card with buttons; waits for a press), `chat.reply` (waits for the traveller's next message) |
 | `starter/types.ts`       | The shapes the chat and the agent share: `Traveller`, `Card`, `Chat`, `Context`                                                                           |
-| `starter/browser.ts`     | `openBrowser`, `observe` (visible text and interactive elements in every frame, each with an id), `act` (click / fill / select / check by id), `screenshot` |
-| `starter/model.ts`       | A provider-agnostic `Model` interface and a placeholder. Implement it for the provider(s) you choose                                                      |
-| `starter/log.ts`         | `RunLog`: one folder per run under `runs/`, an `events.jsonl` and numbered screenshots                                                                    |
+| `starter/browser.ts`     | Restricted main-document observation, fresh control IDs, guarded actions and browser ownership; raw screenshots are disabled |
+| `starter/model.ts`       | Provider adapter interface, direct Claude structured-output requests and schema validation |
+| `starter/offers.ts`, `starter/budget.ts` | Observed candidates, constraint classification, ranking and nightly/stay budget comparisons |
+| `starter/config.ts`      | Environment configuration and runtime model-spend limits |
+| `starter/log.ts`         | Run-event storage under `runs/`; the runtime uses sanitized events and does not invoke raw screenshot capture |
 | `starter/traveller.json` | Who is chatting: the traveller's Halcy profile                                                                                                            |
 | `starter/hotels.json`    | Hotel name to booking-site address. It stands in for Halcy's places database, and at the debrief we'll add a hotel your agent hasn't seen                 |
 | `starter/examples.json`  | The example asks shown under the message box                                                                                                              |
 
-`observe` lists everything it can see, including what's inside the payment provider's frame. What your agent is allowed to look at and touch is a design decision, not a given.
+`observe` excludes subframes and blocks sensitive top-level forms. During traveller control, browser observation and agent actions are disabled. **Check booking** permits restricted inspection only. The current coverage is conservative and does not establish safety for every unfamiliar hotel layout.
+
+## Validation and design
+
+```bash
+npm run typecheck
+node --import tsx --test scripts/test-agent-safety.mjs scripts/test-boundaries.mjs scripts/test-offers.mjs scripts/test-chat-coordinator.mjs
+node --import tsx scripts/smoke-preparation.mjs
+```
+
+The browser tests and preparation smoke require the mock hotel to be running. The smoke intentionally stops at quote extraction and does not prove a booking. Follow [the human-assisted validation procedure](docs/validation-stage-one.md) for the complete flow and reviewer-only booking verification. That document records the actual evidence and remaining validation gaps. Start with [the documentation index](docs/README.md) for design decisions, diagrams and the submission draft.
 
 Keep API keys out of the code. Read them from environment variables (export them in your shell, or load a `.env` file however you like; `.env` is gitignored here).
 

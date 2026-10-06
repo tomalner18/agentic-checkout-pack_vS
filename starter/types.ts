@@ -31,6 +31,16 @@ export interface Chat {
   card(card: Card): string;
   /** Show a card with buttons and wait until the traveller presses one. Resolves to the button's id. */
   choose(card: Card & { buttons: Button[] }): Promise<string>;
+  /** Present several actionable cards, with one selection across the group. */
+  choices?(cards: (Card & { buttons: Button[] })[]): Promise<{ index: number; button: string }>;
+  /** Revoke all outstanding card actions after a request or quote revision. */
+  invalidate?(): void;
+  /** Short progress label, cleared when work stops. */
+  progress?(label: string | null): void;
+  rememberRequest?(hotel: string, request: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[] }): void;
+  privateQuote?(lines: string[] | null): void;
+  outcomeUnknown?(): void;
+  confirmed?(reference: string): void;
   /** Wait for the traveller's next message. */
   reply(): Promise<string>;
 }
@@ -42,6 +52,10 @@ export interface Context {
   /** Hotel name to booking-site address (starter/hotels.json). Stands in for
    *  Halcy's places database: at the debrief we add a hotel your agent hasn't seen. */
   hotels: Record<string, string>;
+  signal?: AbortSignal;
+  revision?: number;
+  priorRequest?: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[] };
+  priorHotel?: string;
 }
 
 /** Runs once per new conversation turn: the traveller wrote `message` while the agent was idle. */

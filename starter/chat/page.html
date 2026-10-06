@@ -11,11 +11,11 @@
       header { padding: 14px 16px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
       header strong { font-weight: 600; }
       header button { font: inherit; font-size: 13px; background: none; border: 0; color: #5c5c5c; cursor: pointer; }
-      #log { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-      .msg { max-width: 82%; padding: 9px 13px; border-radius: 16px; white-space: pre-wrap; word-wrap: break-word; }
+      #log { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+      .msg { flex: 0 0 auto; max-width: 82%; padding: 9px 13px; border-radius: 16px; white-space: pre-wrap; word-wrap: break-word; }
       .agent { align-self: flex-start; background: #fff; border: 1px solid #e3e3e3; }
       .traveller { align-self: flex-end; background: #181818; color: #fff; }
-      .card { align-self: flex-start; width: 88%; background: #fff; border: 1px solid #d6d6d6; border-radius: 14px; overflow: hidden; }
+      .card { flex: 0 0 auto; align-self: flex-start; width: 88%; background: #fff; border: 1px solid #d6d6d6; border-radius: 14px; overflow: hidden; }
       .card img { display: block; width: 100%; border-bottom: 1px solid #eee; }
       .card .body { padding: 12px 14px; }
       .card .title { font-weight: 600; margin-bottom: 4px; }
@@ -26,7 +26,8 @@
       .card button.primary { background: #181818; color: #fff; }
       .card button:disabled { opacity: 0.4; cursor: default; }
       .card button.chosen { opacity: 1; outline: 2px solid #181818; outline-offset: 2px; }
-      #busy { padding: 0 16px 6px; color: #5c5c5c; font-size: 13px; min-height: 20px; }
+      #busy { padding: 0 16px 6px; color: #5c5c5c; font-size: 13px; min-height: 20px; display: flex; align-items: center; justify-content: space-between; }
+      #stop { display: none; border: 0; background: transparent; font: inherit; color: #333; cursor: pointer; padding: 2px 8px; }
       #examples { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 8px; }
       #examples button { flex: 0 0 auto; max-width: 260px; font: inherit; font-size: 13px; text-align: left; padding: 7px 11px; border-radius: 12px; border: 1px solid #d6d6d6; background: #fff; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       form { display: flex; gap: 8px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #ddd; }
@@ -38,7 +39,7 @@
     <div class="phone">
       <header><strong>Halcy</strong><button id="reset" title="Clear the conversation">Clear</button></header>
       <div id="log" aria-live="polite"></div>
-      <div id="busy"></div>
+      <div id="busy"><span id="status"></span><button id="stop" title="Stop assistance" aria-label="Stop assistance">✕ Stop</button></div>
       <div id="examples"></div>
       <form id="form"><textarea id="text" placeholder="Message" rows="1"></textarea><button>Send</button></form>
     </div>
@@ -112,13 +113,19 @@
         }
       }
 
+      function invalidate() {
+        for (const el of cards.values()) for (const button of el.querySelectorAll("button")) button.disabled = true;
+      }
+
       const events = new EventSource("/events");
       events.onmessage = (m) => {
         const e = JSON.parse(m.data);
         if (e.type === "message") message(e.from, e.text);
         if (e.type === "card") card(e.id, e.card);
         if (e.type === "pressed") pressed(e.card, e.button);
-        if (e.type === "busy") document.getElementById("busy").textContent = e.on ? "Halcy is working…" : "";
+        if (e.type === "busy") { document.getElementById("status").textContent = e.on ? "Working on your booking…" : ""; document.getElementById("stop").style.display = e.on ? "inline-block" : "none"; }
+        if (e.type === "progress") document.getElementById("status").textContent = e.label || "";
+        if (e.type === "invalidate") invalidate();
         if (e.type === "reset") { log.innerHTML = ""; cards.clear(); }
         scroll();
       };
@@ -133,6 +140,7 @@
       document.getElementById("form").onsubmit = (e) => { e.preventDefault(); send(); };
       text.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
       document.getElementById("reset").onclick = () => post("/reset");
+      document.getElementById("stop").onclick = () => post("/stop");
 
       fetch("/examples").then((r) => r.json()).then((list) => {
         const box = document.getElementById("examples");
