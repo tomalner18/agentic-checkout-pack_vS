@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { acceptedExceptionLabels, confirmationFromObservation, dateActionFor, detectsActionCycle, effectiveRequestForOffer, quoteComplete, quoteRequirementFindings } from '../starter/agent.ts';
+import { acceptedExceptionLabels, confirmationFromObservation, dateActionFor, detectsActionCycle, effectiveRequestForOffer, quoteComplete, quoteRequirementFindings, withoutRedundantHotelRequirement } from '../starter/agent.ts';
+
+test('hotel identity stays in the selected site rather than becoming a room requirement', () => {
+  assert.deepEqual(withoutRedundantHotelRequirement(['Hotel: Casa Halcy', 'Free cancellation', 'No breakfast'], 'Casa Halcy'), ['Free cancellation', 'No breakfast']);
+  assert.deepEqual(withoutRedundantHotelRequirement(['Casa Halcy', 'Quiet room'], 'Casa Halcy'), ['Quiet room']);
+});
 
 const request = { checkin: '2026-11-13', checkout: '2026-11-15', adults: 2, hardRequirements: ['Refundable cancellation'], preferences: [], exclusions: [] };
 const element = (id, name, overrides = {}) => ({ id, tag: 'button', type: null, name, checked: null, disabled: false, ...overrides });

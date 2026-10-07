@@ -137,7 +137,10 @@ export function rankOffers(offers: OfferCandidate[], mode: 'initial' | 'recovery
 export function eligible(offer: OfferCandidate): boolean { return offer.hardConflicts.length === 0 && offer.unverified.length === 0; }
 
 export function offerLines(offer: OfferCandidate): string[] {
-  return [offer.label, `Price: ${offer.price || 'unknown'}${offer.comparable ? ` (${offer.priceBasis === 'night' ? 'nightly, converted to stay for ranking' : 'provisional stay price'})` : ' (basis unverified)'}`,
+  // The short label is useful for ranking, but the traveller needs the complete
+  // observed listing text to compare rate terms before selecting an option.
+  return [offer.context.replace(/\s+/g, ' ').trim(), `Displayed price: ${offer.price || 'unknown'}${offer.comparable ? ` (${offer.priceBasis === 'night' ? 'nightly, converted to stay for ranking' : 'provisional stay price'})` : ' (basis unverified)'}`,
+    'The full total, cancellation terms, payment timing and hotel payee are checked in the separate quote before agreement.',
     ...offer.hardConflicts.map(x => `Hard conflict: ${x}`), ...offer.unverified.map(x => `Unverified: ${x}`),
     ...offer.softMatches.map(x => `Preference match: ${x}`), ...offer.softMisses.map(x => `Preference not shown: ${x}`)];
 }

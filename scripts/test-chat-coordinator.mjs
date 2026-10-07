@@ -26,6 +26,52 @@ async function harness(fakeAgent) {
 const latestCard = (events, title) => events.filter(event => event.type === 'card' && event.card.title === title).at(-1);
 const messages = events => events.filter(event => event.type === 'message' && event.from === 'agent').map(event => event.text);
 
+test('room choices arrive as one carousel and resolve only once', async () => {
+  const selections = [];
+  const app = await harness(async (_message, chat) => {
+    const selected = await chat.choices([
+      { title: 'Option 1', lines: ['Flexible rate'], buttons: [{ id: 'select', label: 'Select this option' }] },
+      { title: 'Option 2', lines: ['Saver rate'], buttons: [{ id: 'select', label: 'Select this option' }] },
+    ]);
+    selections.push(selected);
+  });
+  try {
+    await app.post('/send', { text: 'Find a room' });
+    const snapshot = await app.until(events => events.some(event => event.type === 'carousel'));
+    const group = snapshot.find(event => event.type === 'carousel');
+    assert.equal(group.cards.length, 2);
+    assert.equal(snapshot.filter(event => event.type === 'card').length, 0);
+    await app.post('/press', { card: group.cards[1].id, button: 'select' });
+    await app.until(() => selections.length === 1);
+    await app.post('/press', { card: group.cards[0].id, button: 'select' });
+    await app.post('/press', { card: group.cards[1].id, button: 'select' });
+    assert.deepEqual(selections, [{ index: 1, button: 'select' }]);
+  } finally { await app.close(); }
+});
+
+test('still working acknowledges the same handoff card without resolving checkout', async () => {
+  const decisions = [];
+  const app = await harness(async (_message, chat) => {
+    decisions.push(await chat.choose({ title: 'You control the hotel browser', lines: [], buttons: [
+      { id: 'check', label: 'Check booking' }, { id: 'later', label: 'Still working' }, { id: 'stop', label: 'Stop checking' },
+    ] }));
+  });
+  try {
+    await app.post('/send', { text: 'Find a room' });
+    let snapshot = await app.until(events => !!latestCard(events, 'You control the hotel browser'));
+    const waiting = latestCard(snapshot, 'You control the hotel browser');
+    await app.post('/press', { card: waiting.id, button: 'later' });
+    await app.post('/press', { card: waiting.id, button: 'later' });
+    snapshot = await app.events();
+    assert.equal(decisions.length, 0);
+    assert.equal(snapshot.filter(event => event.type === 'card' && event.card.title === 'You control the hotel browser').length, 1);
+    assert.equal(snapshot.filter(event => event.type === 'handoff' && event.state === 'waiting').length, 1);
+    await app.post('/press', { card: waiting.id, button: 'check' });
+    await app.until(() => decisions.length === 1);
+    assert.deepEqual(decisions, ['check']);
+  } finally { await app.close(); }
+});
+
 test('ordinary stop and edit language does not treat information questions as mutations', () => {
   assert.equal(isStop('Please stop the search'), true);
   assert.equal(isStop('stop helping'), true);

@@ -20,7 +20,10 @@ const EXAMPLES = read("../examples.json");
 type Event =
   | { type: "message"; from: "traveller" | "agent"; text: string }
   | { type: "card"; id: string; card: Omit<Card, "image"> & { image?: string } }
+  | { type: "carousel"; cards: { id: string; card: Omit<Card, "image"> & { image?: string } }[] }
   | { type: "pressed"; card: string; button: string }
+  | { type: "handoff"; card: string; state: "waiting" | "checking" }
+  | { type: "activity"; state: "working" | "checking" | "idle"; label?: string }
   | { type: "busy"; on: boolean }
   | { type: "progress"; label: string | null }
   | { type: "invalidate" }
@@ -45,6 +48,9 @@ function emit(e: Event) {
 }
 
 let running = false;
+function setActivity(state: 'working' | 'checking' | 'idle', label?: string) {
+  emit({ type: 'activity', state, ...(label ? { label } : {}) });
+}
 let revision = 0;
 let controller: AbortController | null = null;
 let pendingStart: string | null = null;
@@ -57,7 +63,7 @@ let confirmedReference: string | null = null;
 let suspendedCheckoutChoice: { allowed: Set<string>; resolve: (button: string) => void; title: string } | null = null;
 const inbox: string[] = [];
 let waitingReply: ((text: string) => void) | null = null;
-const waitingPress = new Map<string, { allowed: Set<string>; resolve: (button: string) => void; title: string }>();
+const waitingPress = new Map<string, { allowed: Set<string>; resolve: (button: string) => void; title: string; laterAcknowledged?: boolean }>();
 
 function invalidate() {
   for (const pending of waitingPress.values()) pending.resolve('__cancelled__');
@@ -80,11 +86,13 @@ function chatFor(epoch: number): Chat {
   },
   choose(card) {
     if (!current()) return Promise.resolve('__cancelled__');
+    setActivity('idle');
     const id = chat.card(card);
     return new Promise((resolve) => waitingPress.set(id, { allowed: new Set(card.buttons.map(b => b.id)), resolve, title: card.title }));
   },
   choices(cards) {
     if (!current()) return Promise.resolve({ index: -1, button: '__cancelled__' });
+    setActivity('idle');
     return new Promise(resolve => {
       const ids: string[] = [];
       let finished = false;
@@ -95,20 +103,24 @@ function chatFor(epoch: number): Chat {
         emit({ type: 'invalidate' });
         resolve({ index, button });
       };
-      cards.forEach((card, index) => {
-        const id = chat.card(card);
+      const group = cards.map((card, index) => {
+        const id = randomBytes(4).toString('hex');
         ids.push(id);
         waitingPress.set(id, { allowed: new Set(card.buttons.map(b => b.id)), resolve: button => finish(index, button), title: card.title });
+        return { id, card: { ...card, image: card.image ? `data:image/png;base64,${card.image.toString('base64')}` : undefined } };
       });
+      emit({ type: 'carousel', cards: group });
     });
   },
   reply() {
+    if (!current()) return Promise.resolve('');
+    setActivity('idle');
     const queued = inbox.shift();
     if (queued !== undefined) return Promise.resolve(queued);
     return new Promise((resolve) => (waitingReply = resolve));
   },
   invalidate() { if (current()) invalidate(); },
-  progress(label) { if (current()) emit({ type: 'progress', label }); },
+  progress(label) { if (current()) { emit({ type: 'progress', label }); setActivity(label ? 'working' : 'idle', label || undefined); } },
   rememberRequest(hotel, request) { if (current()) { priorHotel = hotel; priorRequest = request; } },
   privateQuote(lines) { if (current()) reviewedQuote = lines; },
   outcomeUnknown() { if (current()) outcomeUnknown = true; },
@@ -135,6 +147,7 @@ async function run(text: string) {
   const chat = chatFor(epoch);
   running = true;
   emit({ type: "busy", on: true });
+  setActivity('working', 'Getting started');
   try {
     await agentImpl(text, chat, context());
   } catch (e) {
@@ -150,6 +163,7 @@ async function run(text: string) {
       inbox.length = 0;
       emit({ type: "busy", on: false });
       emit({ type: 'progress', label: null });
+      setActivity('idle');
       controller = null;
       if (pendingStart) { const next = pendingStart; pendingStart = null; void run(next); }
     }
@@ -166,6 +180,7 @@ function stopCurrent(message = 'I stopped helping. This does not cancel a hotel 
   invalidate();
   emit({ type: 'progress', label: null });
   emit({ type: 'busy', on: false });
+  setActivity('idle');
   emit({ type: 'message', from: 'agent', text: message });
 }
 
@@ -289,8 +304,20 @@ return http.createServer(async (req, res) => {
       const { card, button } = await body(req);
       const pending = waitingPress.get(card);
       if (pending?.allowed.has(button) && (!privateDialogOpen || pending.title === 'Change this checkout?')) {
+        if (pending.title === 'You control the hotel browser' && button === 'later') {
+          if (!pending.laterAcknowledged) {
+            pending.laterAcknowledged = true;
+            emit({ type: 'handoff', card, state: 'waiting' });
+          }
+          res.writeHead(204);
+          return res.end();
+        }
         waitingPress.delete(card);
         emit({ type: "pressed", card, button });
+        if (pending.title === 'You control the hotel browser' && button === 'check') {
+          emit({ type: 'handoff', card, state: 'checking' });
+          setActivity('checking', 'Checking hotel confirmation');
+        } else if (button !== 'stop' && button !== 'edit') setActivity('working', 'Continuing');
         pending.resolve(button);
       }
       res.writeHead(204);
