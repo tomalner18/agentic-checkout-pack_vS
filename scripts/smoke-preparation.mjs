@@ -13,8 +13,11 @@ const model = {
     const input = JSON.parse(req.messages.at(-1).content);
     const keys = Object.keys(req.jsonSchema.properties);
     let result;
-    if (keys.includes('hardRequirements')) {
-      result = { checkin: '2026-11-13', checkout: '2026-11-15', adults: 2, hardRequirements: ['Refundable cancellation'], preferences: ['River view'], exclusions: ['Breakfast'] };
+    if (keys.includes('hardAdd')) {
+      result = { hotelMention: 'Casa Halcy', checkin: '2026-11-13', checkout: '2026-11-15', adults: 2,
+        clearHotel: false, clearCheckin: false, clearCheckout: false, clearAdults: false,
+        hardAdd: ['Refundable cancellation'], hardRemove: [], preferenceAdd: ['River view'], preferenceRemove: [],
+        exclusionAdd: ['Breakfast'], exclusionRemove: [], replaceRanking: false, rankingPriorities: [] };
     } else if (keys.includes('nonBindingEvidence')) {
       const o = input.observation;
       const find = (predicate) => o.elements.find(predicate);

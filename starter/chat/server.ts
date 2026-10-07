@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { agent } from "../agent.ts";
-import type { Agent, Card, Chat, Context } from "../types.ts";
+import type { Agent, Card, Chat, Context, RequestDraft } from "../types.ts";
 
 const PORT = Number(process.env.CHAT_PORT ?? 4200);
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
@@ -22,7 +22,8 @@ type Event =
   | { type: "card"; id: string; card: Omit<Card, "image"> & { image?: string } }
   | { type: "carousel"; cards: { id: string; card: Omit<Card, "image"> & { image?: string } }[] }
   | { type: "pressed"; card: string; button: string }
-  | { type: "handoff"; card: string; state: "waiting" | "checking" }
+  | { type: "handoff"; card: string; state: "checking" }
+  | { type: "card_result"; card: string; state: "agreed" | "declined" | "changed" | "confirmed" | "unresolved" | "cancelled" | "superseded" }
   | { type: "activity"; state: "working" | "checking" | "idle"; label?: string }
   | { type: "busy"; on: boolean }
   | { type: "progress"; label: string | null }
@@ -56,14 +57,23 @@ let controller: AbortController | null = null;
 let pendingStart: string | null = null;
 let priorRequest: Context['priorRequest'];
 let priorHotel: string | undefined;
+let draft: RequestDraft | undefined;
+let intake = false;
 let reviewedQuote: string[] | null = null;
 let privateDialogOpen = false;
 let outcomeUnknown = false;
 let confirmedReference: string | null = null;
+let reviewCardId: string | null = null;
+let handoffCardId: string | null = null;
+const settledCards = new Set<string>();
 let suspendedCheckoutChoice: { allowed: Set<string>; resolve: (button: string) => void; title: string } | null = null;
 const inbox: string[] = [];
 let waitingReply: ((text: string) => void) | null = null;
-const waitingPress = new Map<string, { allowed: Set<string>; resolve: (button: string) => void; title: string; laterAcknowledged?: boolean }>();
+const waitingPress = new Map<string, { allowed: Set<string>; resolve: (button: string) => void; title: string }>();
+
+function settleCard(id: string | null, state: Extract<Event, { type: 'card_result' }>['state']) {
+  if (id && !settledCards.has(id)) { settledCards.add(id); emit({ type: 'card_result', card: id, state }); }
+}
 
 function invalidate() {
   for (const pending of waitingPress.values()) pending.resolve('__cancelled__');
@@ -80,6 +90,8 @@ function chatFor(epoch: number): Chat {
   card(card) {
     if (!current()) return '';
     const id = randomBytes(4).toString("hex");
+    if (card.title === 'Review this hotel booking') reviewCardId = id;
+    if (card.title === 'You control the hotel browser') handoffCardId = id;
     const image = card.image ? `data:image/png;base64,${card.image.toString("base64")}` : undefined;
     emit({ type: "card", id, card: { ...card, image } });
     return id;
@@ -119,12 +131,15 @@ function chatFor(epoch: number): Chat {
     if (queued !== undefined) return Promise.resolve(queued);
     return new Promise((resolve) => (waitingReply = resolve));
   },
-  invalidate() { if (current()) invalidate(); },
+  invalidate() { if (current()) { settleCard(reviewCardId, 'changed'); invalidate(); } },
   progress(label) { if (current()) { emit({ type: 'progress', label }); setActivity(label ? 'working' : 'idle', label || undefined); } },
   rememberRequest(hotel, request) { if (current()) { priorHotel = hotel; priorRequest = request; } },
-  privateQuote(lines) { if (current()) reviewedQuote = lines; },
-  outcomeUnknown() { if (current()) outcomeUnknown = true; },
-  confirmed(reference) { if (current()) { confirmedReference = reference; reviewedQuote = null; } },
+  rememberDraft(value) { if (current()) draft = structuredClone(value); },
+  setIntake(active) { if (current()) intake = active; },
+  takePending() { return current() ? inbox.shift() : undefined; },
+  privateQuote(lines) { if (current()) { reviewedQuote = lines; if (lines) settleCard(reviewCardId, 'agreed'); } },
+  outcomeUnknown() { if (current()) { outcomeUnknown = true; settleCard(handoffCardId, 'unresolved'); } },
+  confirmed(reference) { if (current()) { confirmedReference = reference; reviewedQuote = null; settleCard(handoffCardId, 'confirmed'); } },
 };
   return chat;
 }
@@ -138,6 +153,7 @@ function context(): Context {
     revision,
     priorRequest,
     priorHotel,
+    draft: draft ? structuredClone(draft) : undefined,
   };
 }
 
@@ -146,6 +162,7 @@ async function run(text: string) {
   controller = new AbortController();
   const chat = chatFor(epoch);
   running = true;
+  intake = false;
   emit({ type: "busy", on: true });
   setActivity('working', 'Getting started');
   try {
@@ -157,26 +174,35 @@ async function run(text: string) {
     }
   } finally {
     if (epoch === revision) {
+      settleCard(reviewCardId, 'changed');
+      settleCard(handoffCardId, 'unresolved');
+      const resumeQueuedIntake = intake && !confirmedReference && !reviewedQuote;
       running = false;
+      intake = false;
       waitingReply = null;
       invalidate();
-      inbox.length = 0;
       emit({ type: "busy", on: false });
       emit({ type: 'progress', label: null });
       setActivity('idle');
       controller = null;
-      if (pendingStart) { const next = pendingStart; pendingStart = null; void run(next); }
+      if (pendingStart) { const next = pendingStart; pendingStart = null; inbox.length = 0; void run(next); }
+      else if (resumeQueuedIntake && inbox.length) void run(inbox.shift()!);
+      else inbox.length = 0;
     }
   }
 }
 
 function stopCurrent(message = 'I stopped helping. This does not cancel a hotel reservation; the hotel window remains available.') {
+  settleCard(reviewCardId, 'cancelled');
+  settleCard(handoffCardId, 'cancelled');
   if (controller) controller.abort();
   suspendedCheckoutChoice?.resolve('stop');
   suspendedCheckoutChoice = null;
   privateDialogOpen = false;
+  intake = false;
   waitingReply?.('');
   waitingReply = null;
+  inbox.length = 0;
   invalidate();
   emit({ type: 'progress', label: null });
   emit({ type: 'busy', on: false });
@@ -191,6 +217,7 @@ function showPrivateEditDialog(edit: string) {
   if (liveCheck) {
     waitingPress.delete(liveCheck[0]);
     suspendedCheckoutChoice = liveCheck[1];
+    settleCard(liveCheck[0], 'superseded');
   }
   // Disable old controls without resolving the agent's wait. Only the explicit
   // Submitted / not sure choice may resolve that wait as a verification request.
@@ -210,7 +237,8 @@ function showPrivateEditDialog(edit: string) {
         return;
       }
       const freshId = randomBytes(4).toString('hex');
-      emit({ type: 'card', id: freshId, card: { title: 'You control the hotel browser', lines: ['Continue in the same hotel window. I only inspect after Check booking.'], buttons: [{ id: 'check', label: 'Check booking' }, { id: 'later', label: 'Still working' }, { id: 'stop', label: 'Stop checking' }] } });
+      handoffCardId = freshId;
+      emit({ type: 'card', id: freshId, card: { title: 'You control the hotel browser', lines: ['Continue in the same hotel window. I only inspect after Check booking.'], buttons: [{ id: 'check', label: 'Check booking' }, { id: 'stop', label: 'Stop' }] } });
       waitingPress.set(freshId, suspendedCheckoutChoice);
       suspendedCheckoutChoice = null;
     };
@@ -249,6 +277,11 @@ function travellerSays(text: string) {
   if (reviewedQuote) {
     if (isEdit(text)) { showPrivateEditDialog(text); return; }
     emit({ type: 'message', from: 'agent', text: 'The reviewed quote was:\n' + reviewedQuote.join('\n') + '\nThis is the quote we checked before handoff, not a live view of checkout.' });
+    return;
+  }
+  if (running && intake) {
+    if (waitingReply) { const resolve = waitingReply; waitingReply = null; resolve(text); }
+    else inbox.push(text);
     return;
   }
   if (running && isEdit(text)) { pendingStart = text; stopCurrent('I stopped the old search and will apply your revised request.'); return; }
@@ -304,16 +337,10 @@ return http.createServer(async (req, res) => {
       const { card, button } = await body(req);
       const pending = waitingPress.get(card);
       if (pending?.allowed.has(button) && (!privateDialogOpen || pending.title === 'Change this checkout?')) {
-        if (pending.title === 'You control the hotel browser' && button === 'later') {
-          if (!pending.laterAcknowledged) {
-            pending.laterAcknowledged = true;
-            emit({ type: 'handoff', card, state: 'waiting' });
-          }
-          res.writeHead(204);
-          return res.end();
-        }
         waitingPress.delete(card);
         emit({ type: "pressed", card, button });
+        if (pending.title === 'Review this hotel booking' && (button === 'edit' || button === 'stop')) settleCard(card, 'declined');
+        if (pending.title === 'You control the hotel browser' && button === 'stop') settleCard(card, 'cancelled');
         if (pending.title === 'You control the hotel browser' && button === 'check') {
           emit({ type: 'handoff', card, state: 'checking' });
           setActivity('checking', 'Checking hotel confirmation');
@@ -334,9 +361,14 @@ return http.createServer(async (req, res) => {
       history = [];
       priorRequest = undefined;
       priorHotel = undefined;
+      draft = undefined;
+      inbox.length = 0;
       reviewedQuote = null;
       outcomeUnknown = false;
       confirmedReference = null;
+      reviewCardId = null;
+      handoffCardId = null;
+      settledCards.clear();
       emit({ type: "reset" });
       res.writeHead(204);
       return res.end();

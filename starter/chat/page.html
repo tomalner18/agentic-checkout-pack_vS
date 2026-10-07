@@ -29,6 +29,15 @@
       .card img { display: block; width: 100%; height: auto; border-bottom: 1px solid var(--line); }
       .card .body { padding: 17px 17px 10px; }
       .card .title { font: 22px/1.14 Georgia, serif; letter-spacing: -.025em; margin-bottom: 10px; }
+      .card .notice { margin: 0 0 13px; padding: 10px 12px; border: 1px solid #e6cfaa; border-radius: 11px; background: #fff5e3; color: #674819; font-size: 13px; font-weight: 700; white-space: pre-wrap; }
+      .price-change { margin: 0 0 12px; padding: 12px; border: 1px solid #e6cfaa; border-radius: 12px; background: #fff5e3; }
+      .price-change-title { color: #76521d; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+      .price-change-row { display: flex; align-items: end; gap: 8px; margin-top: 7px; }
+      .price-change-side { flex: 1; min-width: 0; }
+      .price-change-side small { display: block; color: #765f3b; font-size: 11px; }
+      .price-change-side strong { display: block; color: var(--ink); font: 21px/1.2 Georgia, serif; font-variant-numeric: tabular-nums; }
+      .price-change-arrow { padding-bottom: 3px; color: #a27736; }
+      .price-change-difference { margin-top: 6px; color: #76521d; font-size: 12px; font-weight: 800; }
       .card .line { margin: 7px 0; color: #3d514d; overflow-wrap: anywhere; }
       .card .line:first-of-type { color: var(--ink); }
       .card a { color: var(--green-dark); font-weight: 700; text-underline-offset: 3px; }
@@ -74,7 +83,40 @@
       .handoff { border-color: #b8cfc0; }
       .handoff-status { display: flex; align-items: center; gap: 9px; margin: 0 17px 6px; padding: 10px 12px; border-radius: 10px; background: var(--green-soft); color: var(--green-dark); font-weight: 700; }
       .handoff-status .spinner { width: 15px; height: 15px; }
-      .handoff-status.waiting .spinner { animation-duration: 1.7s; }
+      .card.is-settled { width: fit-content; max-width: min(100%, 400px); border-radius: 14px; box-shadow: none; }
+      .card.is-settled:not(.expanded) > :not(.card-result) { display: none; }
+      .card.is-settled .buttons, .card.is-settled .handoff-status { display: none; }
+      .card.is-settled.expanded { width: min(100%, 400px); }
+      .card-result { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; border: 0; padding: 7px 13px 7px 9px; background: #f0f5ef; color: var(--green-dark); text-align: left; font-size: 13px; font-weight: 700; }
+      .card-result-icon { display: grid; place-items: center; flex: 0 0 auto; width: 27px; height: 27px; border-radius: 9px; background: var(--green); color: white; font-size: 16px; }
+      .card-result-label { flex: 1; }
+      .card-result-chevron { color: var(--muted); font-size: 16px; transition: transform .18s; }
+      .card.is-settled.expanded .card-result-chevron { transform: rotate(180deg); }
+      .card[data-result="declined"] .card-result, .card[data-result="cancelled"] .card-result { background: #f5f0ee; color: #734c42; }
+      .card[data-result="declined"] .card-result-icon, .card[data-result="cancelled"] .card-result-icon { background: #925b4f; }
+      .card[data-result="changed"] .card-result, .card[data-result="unresolved"] .card-result, .card[data-result="superseded"] .card-result { background: #f8f3e7; color: #765b2b; }
+      .card[data-result="changed"] .card-result-icon, .card[data-result="unresolved"] .card-result-icon, .card[data-result="superseded"] .card-result-icon { background: #a37d39; }
+      .room-card { border-color: #d5ddd5; box-shadow: 0 7px 22px #19352a0c; }
+      .room-card .body { padding: 15px 17px 10px; }
+      .room-kicker { color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+      .room-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 4px 0 2px; }
+      .room-card .title { min-width: 0; margin: 0; font: 21px/1.15 Georgia, serif; }
+      .room-price-value { flex: 0 0 auto; color: var(--green-dark); font: 23px/1 Georgia, serif; letter-spacing: -.04em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .room-note { margin: 0 0 10px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+      .room-highlights { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 10px; }
+      .room-chip { border-radius: 7px; padding: 4px 7px; background: #eaf2e9; color: #285847; font-size: 11px; font-weight: 700; }
+      .room-chip.alert { background: #fbefdc; color: #76501b; }
+      .room-stay { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 10px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .room-stay-separator { color: #9aaba1; }
+      .room-facts { padding: 8px 0 0; border-top: 1px solid var(--line); }
+      .room-fact { margin: 0 0 7px; color: #354c43; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+      .room-fact:last-child { margin-bottom: 0; }
+      .room-source { padding-top: 9px; color: var(--muted); font-size: 12px; }
+      .room-source summary { cursor: pointer; color: var(--green-dark); font-weight: 700; }
+      .room-source .line { font-size: 12px; }
+      .room-card .buttons { padding-top: 0; }
+      .room-card .action { width: 100%; }
+      @media (max-width: 370px) { .room-card .title { font-size: 19px; } .room-price-value { font-size: 20px; } }
       #examples { display: flex; gap: 7px; overflow-x: auto; padding: 4px 12px 9px; scrollbar-width: thin; }
       #examples button { flex: 0 0 auto; max-width: 275px; min-height: 38px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--white); color: var(--muted); text-align: left; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       #examples button:hover { border-color: var(--green); color: var(--green-dark); }
@@ -178,6 +220,7 @@
         const el = document.createElement("article");
         el.className = "card";
         if (data.title === "You control the hotel browser") el.classList.add("handoff");
+        if (data.roomOption) el.classList.add("room-card");
         if (data.image) {
           const img = document.createElement("img");
           img.src = data.image;
@@ -186,15 +229,100 @@
         }
         const body = document.createElement("div");
         body.className = "body";
+        if (data.roomOption) {
+          const option = data.roomOption;
+          const addText = (parent, className, value) => {
+            const node = document.createElement("div");
+            node.className = className;
+            node.textContent = value;
+            parent.appendChild(node);
+            return node;
+          };
+          addText(body, "room-kicker", data.title);
+          const heading = document.createElement("div");
+          heading.className = "room-heading";
+          addText(heading, "title", option.name);
+          const price = addText(heading, "room-price-value", option.price);
+          price.setAttribute("aria-label", `${option.priceLabel}: ${option.price}`);
+          body.appendChild(heading);
+          addText(body, "room-note", `${option.priceLabel} · ${option.priceNote}`);
+          if (option.highlights?.length || option.alerts?.length) {
+            const chips = document.createElement("div");
+            chips.className = "room-highlights";
+            for (const value of option.highlights || []) addText(chips, "room-chip", value);
+            for (const value of option.alerts || []) addText(chips, "room-chip alert", value);
+            body.appendChild(chips);
+          }
+          const stay = document.createElement("div");
+          stay.className = "room-stay";
+          addText(stay, "", option.dates);
+          addText(stay, "room-stay-separator", "·");
+          addText(stay, "", option.guests);
+          body.appendChild(stay);
+          const facts = document.createElement("div");
+          facts.className = "room-facts";
+          for (const value of [option.cancellation, option.meals, option.payment]) addText(facts, "room-fact", value);
+          body.appendChild(facts);
+          const source = document.createElement("details");
+          source.className = "room-source";
+          const summary = document.createElement("summary");
+          summary.textContent = "Read listing details";
+          source.appendChild(summary);
+          addText(source, "line", option.listingText);
+          for (const value of (data.lines || []).slice(1)) addText(source, "line", value);
+          body.appendChild(source);
+        } else {
         const title = document.createElement("div");
         title.className = "title";
         title.textContent = data.title;
         body.appendChild(title);
+        if (data.priceChange) {
+          const change = document.createElement("div");
+          change.className = "price-change";
+          const heading = document.createElement("div");
+          heading.className = "price-change-title";
+          heading.textContent = "Price changed";
+          change.appendChild(heading);
+          const row = document.createElement("div");
+          row.className = "price-change-row";
+          for (const [label, value] of [[data.priceChange.beforeLabel, data.priceChange.before], ["Checkout total", data.priceChange.current]]) {
+            if (row.children.length) {
+              const arrow = document.createElement("span");
+              arrow.className = "price-change-arrow";
+              arrow.setAttribute("aria-hidden", "true");
+              arrow.textContent = "→";
+              row.appendChild(arrow);
+            }
+            const side = document.createElement("div");
+            side.className = "price-change-side";
+            const caption = document.createElement("small");
+            caption.textContent = label;
+            const amount = document.createElement("strong");
+            amount.textContent = value;
+            side.append(caption, amount);
+            row.appendChild(side);
+          }
+          change.appendChild(row);
+          if (data.priceChange.difference) {
+            const difference = document.createElement("div");
+            difference.className = "price-change-difference";
+            difference.textContent = `${data.priceChange.difference} from the previous amount`;
+            change.appendChild(difference);
+          }
+          body.appendChild(change);
+        }
+        if (data.notice) {
+          const notice = document.createElement("div");
+          notice.className = "notice";
+          notice.textContent = data.notice;
+          body.appendChild(notice);
+        }
         for (const value of data.lines ?? []) {
           const line = document.createElement("div");
           line.className = "line";
           line.textContent = value;
           body.appendChild(line);
+        }
         }
         if (data.link) {
           const a = document.createElement("a");
@@ -205,12 +333,6 @@
           body.appendChild(a);
         }
         el.appendChild(body);
-        if (el.classList.contains("handoff")) {
-          const status = document.createElement("div");
-          status.className = "handoff-status waiting";
-          status.innerHTML = '<span class="spinner" aria-hidden="true"></span><span class="handoff-status-text">Waiting for you in the hotel browser</span>';
-          el.appendChild(status);
-        }
         if (data.buttons?.length) {
           const row = document.createElement("div");
           row.className = "buttons";
@@ -223,14 +345,9 @@
             button.onclick = async () => {
               if (button.disabled) return;
               const group = [...el.querySelectorAll(".action")];
-              if (action.id === "later" && el.classList.contains("handoff")) {
-                button.disabled = true;
-                button.textContent = "We'll wait";
-              } else {
-                group.forEach(b => b.disabled = true);
-                button.classList.add("chosen");
-                button.textContent = action.id === "check" ? "Checking…" : action.label;
-              }
+              group.forEach(b => b.disabled = true);
+              button.classList.add("chosen");
+              button.textContent = action.id === "check" ? "Checking…" : action.label;
               try {
                 const response = await post("/press", { card: id, button: action.id });
                 if (!response.ok) throw new Error("action failed");
@@ -256,22 +373,61 @@
           if (b.dataset.id === button) b.classList.add("chosen");
         }
       }
+      function cardResult(id, state) {
+        const el = cards.get(id);
+        if (!el || el.classList.contains("is-settled")) return;
+        const outcomes = {
+          agreed: ["✓", "Agreed · booking terms reviewed"],
+          declined: ["×", "Declined · no agreement"],
+          changed: ["!", "Terms changed · review needed"],
+          confirmed: ["✓", "Hotel booking confirmed"],
+          unresolved: ["?", "Confirmation not verified"],
+          cancelled: ["×", "Assistance stopped"],
+          superseded: ["!", "Checking paused"],
+        };
+        const [iconText, label] = outcomes[state] || outcomes.unresolved;
+        el.classList.add("is-settled");
+        el.dataset.result = state;
+        el.querySelector(".buttons")?.remove();
+        el.querySelector(".handoff-status")?.remove();
+        const result = document.createElement("button");
+        result.type = "button";
+        result.className = "card-result";
+        result.setAttribute("aria-expanded", "false");
+        result.setAttribute("aria-label", `${label}. Show details`);
+        const icon = document.createElement("span");
+        icon.className = "card-result-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = iconText;
+        const text = document.createElement("span");
+        text.className = "card-result-label";
+        text.textContent = label;
+        const chevron = document.createElement("span");
+        chevron.className = "card-result-chevron";
+        chevron.setAttribute("aria-hidden", "true");
+        chevron.textContent = "⌄";
+        result.append(icon, text, chevron);
+        result.onclick = () => {
+          const open = el.classList.toggle("expanded");
+          result.setAttribute("aria-expanded", String(open));
+          result.setAttribute("aria-label", `${label}. ${open ? "Hide" : "Show"} details`);
+        };
+        el.prepend(result);
+      }
       function invalidate() {
         for (const el of cards.values()) for (const button of el.querySelectorAll(".action")) button.disabled = true;
       }
       function handoff(id, state) {
         const el = cards.get(id);
-        if (!el) return;
-        const status = el.querySelector(".handoff-status");
-        if (!status) return;
-        status.className = "handoff-status " + state;
-        status.querySelector(".handoff-status-text").textContent = state === "checking" ? "Checking the hotel's confirmation" : "Waiting for you in the hotel browser";
-        if (state === "waiting") {
-          const later = el.querySelector('[data-id="later"]');
-          if (later) { later.disabled = true; later.textContent = "We'll wait"; }
-        } else {
-          for (const button of el.querySelectorAll(".action")) button.disabled = true;
+        if (!el || state !== "checking") return;
+        let status = el.querySelector(".handoff-status");
+        if (!status) {
+          status = document.createElement("div");
+          status.className = "handoff-status";
+          status.innerHTML = '<span class="spinner" aria-hidden="true"></span><span class="handoff-status-text">Checking the hotel\'s confirmation</span>';
+          el.querySelector(".buttons")?.before(status);
         }
+        for (const button of el.querySelectorAll(".action")) button.disabled = true;
       }
       function carousel(items) {
         if (!items.length) return;
@@ -375,6 +531,7 @@
         if (e.type === "carousel") carousel(e.cards);
         if (e.type === "pressed") pressed(e.card, e.button);
         if (e.type === "handoff") handoff(e.card, e.state);
+        if (e.type === "card_result") cardResult(e.card, e.state);
         if (e.type === "activity") activity(e.state, e.label);
         if (e.type === "busy") document.getElementById("reset").disabled = e.on;
         if (e.type === "invalidate") invalidate();

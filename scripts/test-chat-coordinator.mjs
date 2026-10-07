@@ -49,27 +49,84 @@ test('room choices arrive as one carousel and resolve only once', async () => {
   } finally { await app.close(); }
 });
 
-test('still working acknowledges the same handoff card without resolving checkout', async () => {
+test('handoff waits for an explicit check and offers only check or stop', async () => {
   const decisions = [];
   const app = await harness(async (_message, chat) => {
     decisions.push(await chat.choose({ title: 'You control the hotel browser', lines: [], buttons: [
-      { id: 'check', label: 'Check booking' }, { id: 'later', label: 'Still working' }, { id: 'stop', label: 'Stop checking' },
+      { id: 'check', label: 'Check booking' }, { id: 'stop', label: 'Stop' },
     ] }));
   });
   try {
     await app.post('/send', { text: 'Find a room' });
     let snapshot = await app.until(events => !!latestCard(events, 'You control the hotel browser'));
     const waiting = latestCard(snapshot, 'You control the hotel browser');
-    await app.post('/press', { card: waiting.id, button: 'later' });
+    assert.deepEqual(waiting.card.buttons, [{ id: 'check', label: 'Check booking' }, { id: 'stop', label: 'Stop' }]);
     await app.post('/press', { card: waiting.id, button: 'later' });
     snapshot = await app.events();
     assert.equal(decisions.length, 0);
     assert.equal(snapshot.filter(event => event.type === 'card' && event.card.title === 'You control the hotel browser').length, 1);
-    assert.equal(snapshot.filter(event => event.type === 'handoff' && event.state === 'waiting').length, 1);
+    assert.equal(snapshot.filter(event => event.type === 'handoff').length, 0);
     await app.post('/press', { card: waiting.id, button: 'check' });
     await app.until(() => decisions.length === 1);
     assert.deepEqual(decisions, ['check']);
   } finally { await app.close(); }
+});
+
+test('agreement and verified booking settle their original cards in replayed history', async () => {
+  const app = await harness(async (_message, chat) => {
+    if (await chat.choose({ title: 'Review this hotel booking', lines: ['Superior double', '€420 total'], buttons: [{ id: 'agree', label: 'I agree' }] }) !== 'agree') return;
+    chat.privateQuote(['Superior double', '€420 total']);
+    if (await chat.choose({ title: 'You control the hotel browser', lines: [], buttons: [{ id: 'check', label: 'Check booking' }] }) !== 'check') return;
+    chat.confirmed('CH-123456');
+    chat.card({ title: 'Hotel booking confirmed', lines: ['Reference: CH-123456'] });
+  });
+  try {
+    await app.post('/send', { text: 'Book a room' });
+    let snapshot = await app.until(events => !!latestCard(events, 'Review this hotel booking'));
+    const review = latestCard(snapshot, 'Review this hotel booking');
+    await app.post('/press', { card: review.id, button: 'agree' });
+    snapshot = await app.until(events => !!latestCard(events, 'You control the hotel browser'));
+    const handoff = latestCard(snapshot, 'You control the hotel browser');
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === review.id).map(e => e.state), ['agreed']);
+    await app.post('/press', { card: handoff.id, button: 'check' });
+    snapshot = await app.until(events => !!latestCard(events, 'Hotel booking confirmed'));
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === handoff.id).map(e => e.state), ['confirmed']);
+    assert.equal(snapshot.filter(e => e.type === 'card_result' && e.card === review.id).length, 1);
+  } finally { await app.close(); }
+});
+
+test('declines, unresolved checks and cancellation settle without claiming a booking failed', async () => {
+  const app = await harness(async (_message, chat, ctx) => {
+    const review = await chat.choose({ title: 'Review this hotel booking', lines: [], buttons: [{ id: 'edit', label: 'Edit' }] });
+    if (review !== 'edit') return;
+  });
+  try {
+    await app.post('/send', { text: 'Book a room' });
+    let snapshot = await app.until(events => !!latestCard(events, 'Review this hotel booking'));
+    const review = latestCard(snapshot, 'Review this hotel booking');
+    await app.post('/press', { card: review.id, button: 'edit' });
+    snapshot = await app.until(events => events.some(e => e.type === 'card_result' && e.card === review.id));
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === review.id).map(e => e.state), ['declined']);
+  } finally { await app.close(); }
+  const checking = await harness(async (_message, chat, ctx) => {
+    while (!ctx.signal.aborted) {
+      const decision = await chat.choose({ title: 'You control the hotel browser', lines: [], buttons: [{ id: 'check', label: 'Check booking' }, { id: 'stop', label: 'Stop' }] });
+      if (decision === 'check') chat.outcomeUnknown();
+      else return;
+    }
+  });
+  try {
+    await checking.post('/send', { text: 'Check a booking' });
+    let snapshot = await checking.until(events => !!latestCard(events, 'You control the hotel browser'));
+    const first = latestCard(snapshot, 'You control the hotel browser');
+    await checking.post('/press', { card: first.id, button: 'check' });
+    snapshot = await checking.until(events => events.filter(e => e.type === 'card' && e.card.title === 'You control the hotel browser').length === 2);
+    const second = latestCard(snapshot, 'You control the hotel browser');
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === first.id).map(e => e.state), ['unresolved']);
+    await checking.post('/press', { card: second.id, button: 'stop' });
+    snapshot = await checking.until(events => events.some(e => e.type === 'card_result' && e.card === second.id));
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === second.id).map(e => e.state), ['cancelled']);
+  } finally { await checking.close(); }
 });
 
 test('ordinary stop and edit language does not treat information questions as mutations', () => {
@@ -207,5 +264,48 @@ test('search edits revoke old work and carry unchanged request context into the 
     await app.post('/send', { text: 'Please stop the search' });
     await app.until(events => messages(events).some(message => message.includes('I stopped helping')));
     assert.equal(starts.length, 2);
+  } finally { await app.close(); }
+});
+
+test('messages arriving during intake are retained in order and reset clears the draft', async () => {
+  let release;
+  const starts = [];
+  const consumed = [];
+  const app = await harness(async (message, chat, ctx) => {
+    starts.push({ message, draft: ctx.draft });
+    if (starts.length > 1) return;
+    chat.setIntake(true);
+    chat.rememberDraft({ hotelMention: 'Casa Halcy', hotel: 'Casa Halcy', checkin: null, checkout: null, adults: null,
+      hardRequirements: [], preferences: [], exclusions: [], rankingPriorities: [] });
+    await new Promise(resolve => { release = resolve; });
+    consumed.push(chat.takePending(), chat.takePending());
+  });
+  try {
+    await app.post('/send', { text: 'Casa Halcy' });
+    await app.until(() => !!release);
+    await app.post('/send', { text: '3 people' });
+    await app.post('/send', { text: 'Actually, Friday to Sunday next month' });
+    release();
+    await app.until(() => consumed.length === 2);
+    assert.deepEqual(consumed, ['3 people', 'Actually, Friday to Sunday next month']);
+    await app.until(events => events.some(event => event.type === 'busy' && event.on === false));
+    await app.post('/reset', {});
+    await app.post('/send', { text: 'New request' });
+    await app.until(() => starts.length === 2);
+    assert.equal(starts[1].draft, undefined);
+  } finally { await app.close(); }
+});
+
+test('a queued ordinary message cannot start another booking after search completes', async () => {
+  let release;
+  let starts = 0;
+  const app = await harness(async () => { starts++; await new Promise(resolve => { release = resolve; }); });
+  try {
+    await app.post('/send', { text: 'Book Casa Halcy' });
+    await app.until(() => !!release);
+    await app.post('/send', { text: 'What is the price?' });
+    release();
+    await app.until(events => events.some(event => event.type === 'busy' && event.on === false));
+    assert.equal(starts, 1);
   } finally { await app.close(); }
 });

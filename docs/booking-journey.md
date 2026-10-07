@@ -6,10 +6,10 @@ Agreed behaviour, 2026-10-06. This is the product specification for the prototyp
 
 | Stage | Traveller sees or does | Agent responsibility |
 | --- | --- | --- |
-| Request | Asks for a hotel and stay in chat | Resolve relative dates; separate hard constraints, exclusions and preferences |
+| Request | Asks for a hotel and stay in chat, possibly over several messages | Retain each supplied field; resolve relative dates; separate hard constraints, exclusions, preferences and ordered priorities |
 | Clarification | Supplies only missing required details | Use group count when available, explicit occupancy first; otherwise ask count, assume a bare number means adults; ask child ages only if needed |
 | Search | Activity status and X/Stop | Search visible hotel pages; remove unwanted optional extras; explain ordinary retries |
-| Options | All observed verified eligible room/rate offers and why they are ordered that way | Rank by evidenced preference fit, then comparable price; preserve unknown facts and provisional prices |
+| Options | All observed verified eligible room/rate offers and why they are ordered that way | Apply stated priorities in order; otherwise rank by evidenced preference fit, then comparable price; preserve unknown facts and provisional prices |
 | Choice | Selects a specific room/rate | Revalidate selected availability; do not substitute another offer silently |
 | Near miss, when needed | Separate choices labelled with unmet requirements; explicit conflict dialog on selection | Obtain offer-specific exception acceptance; leave original search constraints intact |
 | Preparation | Brief progress updates | Fill ordinary guest details and take conventional preparatory actions; stop at an identified commitment/payment boundary |
@@ -25,7 +25,7 @@ For the example request, cancellation flexibility is a hard requirement, river v
 
 Each candidate needs room/rate identity and supporting observed evidence. An unknown hard requirement does not count as met: inspect available detail or state that it remains unverified. Show all eligible options actually observed, without implying exhaustive hotel inventory coverage.
 
-Initial ranking uses evidenced soft-preference fit, then ascending comparable price. The accompanying message explains it, for example: “River-view options first, then price.” Search prices may be nightly, exclude tax, or refer to different occupancy; normalize only when the evidence supports it and label incomplete totals. Do not compare a nightly subtotal with a full stay total as though equivalent.
+Initial ranking applies the traveller's stated order, such as river view first and then visible room quality, or cheapest comparable stay first. Without an explicit order, it uses evidenced soft-preference fit and then ascending comparable price. Room quality uses visible tier, size and amenity cues; price alone does not establish quality. Search prices may be nightly, exclude tax, or refer to different occupancy; normalize only when the evidence supports it and label incomplete totals. Do not compare a nightly subtotal with a full stay total as though equivalent.
 
 If no verified eligible option exists, show useful near misses separately. Highlight known hard conflicts with explicit text, soft misses as preferences, and unknowns as unverified. Colour can reinforce those categories; it cannot replace the wording. A reasonable initial near-miss ranking is fewer known hard conflicts, preference fit, then comparable price; that is an implementation default, not a claim that all constraints have equal personal importance.
 

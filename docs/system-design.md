@@ -42,7 +42,7 @@ These are logical records, not a prescribed database schema. The prototype is in
 
 | Record | Contents and purpose |
 | --- | --- |
-| Request | Hotel, absolute dates, occupancy, hard constraints, soft preferences, exclusions and unresolved fields; monotonically increasing revision |
+| Request | Hotel mention and resolved site, absolute dates, occupancy, hard constraints, soft preferences, exclusions, ordered ranking priorities and unresolved fields; monotonically increasing revision |
 | Operation | Operation ID/revision, current stage, cancellation signal and permitted control owner; separates old asynchronous work from current intent |
 | Observation | Fresh ID, allowed URL/document, permitted visible facts and currently actionable controls; never reusable across actions/navigation |
 | Offer candidate | Room/rate identity, observation/time, price basis and completeness, constraint evidence and availability status; provisional until revalidated |

@@ -14,10 +14,30 @@ export interface Button {
   label: string;
 }
 
+/** Listing facts are provisional until the separate checkout quote is checked. */
+export interface RoomOptionDetails {
+  name: string;
+  priceLabel: string;
+  price: string;
+  priceNote: string;
+  dates: string;
+  guests: string;
+  cancellation: string;
+  meals: string;
+  payment: string;
+  paymentExpectation: 'nothing-now' | 'full-now' | 'unknown';
+  alerts: string[];
+  highlights: string[];
+  listingText: string;
+}
+
 /** Something richer than a text bubble: a summary, a screenshot, a link, a choice. */
 export interface Card {
   title: string;
+  notice?: string;
+  priceChange?: { beforeLabel: string; before: string; current: string; difference?: string };
   lines?: string[];
+  roomOption?: RoomOptionDetails;
   /** A PNG (for example a screenshot) shown in the card. */
   image?: Buffer;
   link?: { label: string; url: string };
@@ -38,6 +58,9 @@ export interface Chat {
   /** Short progress label, cleared when work stops. */
   progress?(label: string | null): void;
   rememberRequest?(hotel: string, request: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[] }): void;
+  rememberDraft?(draft: RequestDraft): void;
+  setIntake?(active: boolean): void;
+  takePending?(): string | undefined;
   privateQuote?(lines: string[] | null): void;
   outcomeUnknown?(): void;
   confirmed?(reference: string): void;
@@ -56,6 +79,24 @@ export interface Context {
   revision?: number;
   priorRequest?: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[] };
   priorHotel?: string;
+  draft?: RequestDraft;
+}
+
+export interface RankingPriority {
+  kind: 'feature' | 'quality' | 'price';
+  value: string;
+}
+
+export interface RequestDraft {
+  hotelMention: string | null;
+  hotel: string | null;
+  checkin: string | null;
+  checkout: string | null;
+  adults: number | null;
+  hardRequirements: string[];
+  preferences: string[];
+  exclusions: string[];
+  rankingPriorities: RankingPriority[];
 }
 
 /** Runs once per new conversation turn: the traveller wrote `message` while the agent was idle. */

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { eligible, observedOffers, rankOffers } from '../starter/offers.ts';
+import { eligible, observedOffers, rankOffers, roomOptionDetails } from '../starter/offers.ts';
 
 const request = { checkin: '2026-11-13', checkout: '2026-11-15', adults: 2, hardRequirements: ['Refundable cancellation'], preferences: ['River view'], exclusions: ['Breakfast'] };
 const select = (id, context) => ({ id, tag: 'a', type: null, name: 'Select', context, checked: null, disabled: false });
@@ -64,4 +64,72 @@ test('ambiguous or ungrounded card amounts do not become comparable prices', () 
   const unknownBasis = observedOffers(seen(select('b', 'Double. €350.')),
     { ...request, hardRequirements: ['Maximum €500 total'], exclusions: [] })[0];
   assert.equal(unknownBasis.comparable, false);
+});
+
+test('cheapest first outranks a soft view preference only when stay prices are comparable', () => {
+  const rankedRequest = { ...request, rankingPriorities: [{ kind: 'price', value: '' }] };
+  const offers = observedOffers(seen(
+    select('river', 'River view double. Free cancellation. Total €430. 2 nights, room only.'),
+    select('cheap', 'Classic double. Free cancellation. Total €300. 2 nights, room only.'),
+    select('unknown', 'River view suite. Free cancellation. €200. room only.'),
+  ), rankedRequest);
+  assert.deepEqual(rankOffers(offers, 'initial', undefined, rankedRequest).map(offer => offer.actionName + offer.context.slice(0, 7)),
+    ['SelectClassic', 'SelectRiver v', 'SelectRiver v']);
+  assert.equal(rankOffers(offers, 'initial', undefined, rankedRequest)[2].comparable, false);
+});
+
+test('river view then visible quality preserves order and does not use price as a quality proxy', () => {
+  const rankedRequest = { ...request, rankingPriorities: [{ kind: 'feature', value: 'River view' }, { kind: 'quality', value: '' }] };
+  const offers = observedOffers(seen(
+    select('a', 'Deluxe suite. Free cancellation. Total €800. 2 nights, room only.'),
+    select('b', 'Classic river-facing double. Free cancellation. Total €350. 2 nights, room only.'),
+    select('c', 'River view suite with balcony. Free cancellation. Total €500. 2 nights, room only.'),
+    select('d', 'Mystery river view room. Free cancellation. Total €900. 2 nights, room only.'),
+    select('e', 'River view suite. Non-refundable. Total €200. 2 nights, room only.'),
+  ), rankedRequest);
+  const order = rankOffers(offers, 'initial', undefined, rankedRequest);
+  assert.deepEqual(order.map(offer => offer.context.split('.')[0]), [
+    'River view suite with balcony', 'Classic river-facing double', 'Mystery river view room', 'Deluxe suite', 'River view suite',
+  ]);
+  assert.equal(order[2].qualityScore, null);
+  assert.equal(order[4].hardConflicts.length, 1);
+});
+
+test('negated room features do not count as preference or quality evidence', () => {
+  const rankedRequest = { ...request, rankingPriorities: [{ kind: 'feature', value: 'River view' }, { kind: 'quality', value: '' }] };
+  const offers = observedOffers(seen(
+    select('a', 'Classic double with no river view and no balcony. Free cancellation. Total €300. 2 nights, room only.'),
+    select('b', 'Classic river-facing double. Free cancellation. Total €350. 2 nights, room only.'),
+  ), rankedRequest);
+  assert.deepEqual(offers[0].softMatches, []);
+  assert.deepEqual(offers[0].qualityEvidence, ['Classic']);
+  assert.equal(rankOffers(offers, 'initial', undefined, rankedRequest)[0].key, offers[1].key);
+});
+
+test('room summary exposes known listing facts and does not invent a final total or payment split', () => {
+  const offer = observedOffers(seen(select('a', 'Superior double 26 m², balcony. Flexible. Free cancellation until 48 hours before arrival. Nothing is charged now and you pay at the hotel. €404.00 2 nights, room only.')), request)[0];
+  const details = roomOptionDetails(offer, request);
+  assert.equal(details.name, 'Superior double');
+  assert.equal(details.price, '€404.00');
+  assert.equal(details.priceLabel, 'Listed stay price');
+  assert.match(details.priceNote, /final total/i);
+  assert.match(details.cancellation, /Free cancellation until 48 hours/i);
+  assert.equal(details.meals, 'Room only (no meals)');
+  assert.equal(details.payment, 'Nothing charged now; pay at the hotel (amount verified at checkout).');
+  assert.equal(details.guests, '2 adults');
+  assert.equal(details.dates, '13–15 Nov 2026');
+});
+
+test('missing listing terms remain visible as unknown', () => {
+  const offer = observedOffers(seen(select('a', 'Garden room. €180 per night.')), { ...request, hardRequirements: [], exclusions: [] })[0];
+  const details = roomOptionDetails(offer, request);
+  assert.equal(details.cancellation, 'Cancellation terms not stated');
+  assert.equal(details.meals, 'Meals not stated');
+  assert.equal(details.payment, 'Payment timing verified at checkout.');
+  assert.match(details.priceNote, /checkout/i);
+});
+
+test('pay at hotel wording alone does not claim zero due now', () => {
+  const offer = observedOffers(seen(select('a', 'Garden room. Total €300. 2 nights. Pay at the hotel.')), { ...request, hardRequirements: [], exclusions: [] })[0];
+  assert.equal(roomOptionDetails(offer, request).payment, 'Pay at the hotel indicated; any charge now to verify at checkout.');
 });

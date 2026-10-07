@@ -72,7 +72,7 @@ There are distinct records of consent: a traveller's offer-specific exception, a
 
 ## 5. Traveller journey and recovery
 
-Initial search presents all observed eligible room/rate options, ordered by evidenced preference fit and then comparable price, with the ordering explained in chat. Prices remain provisional until checkout reveals the complete total. The traveller chooses; the assistant does not silently book its favourite.
+Initial search presents all observed eligible room/rate options, ordered by the traveller's explicit priorities when given. Otherwise it uses evidenced preference fit and then comparable price. The ordering is explained in chat; unknown comparisons and provisional prices are labelled. The traveller chooses; the assistant does not silently book its favourite.
 
 If nothing meets the hard constraints, show a separate set of useful near misses. Chips name hard conflicts, soft preference misses and unverified facts; colour only reinforces the text. Selecting a near miss opens a dialog repeating all known hard conflicts. Explicit continuation accepts them for that offer only, without changing the request or launching another search. Final quote agreement still follows.
 

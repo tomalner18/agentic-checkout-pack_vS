@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { acceptedExceptionLabels, confirmationFromObservation, dateActionFor, detectsActionCycle, effectiveRequestForOffer, quoteComplete, quoteRequirementFindings, withoutRedundantHotelRequirement } from '../starter/agent.ts';
+import { acceptedExceptionLabels, checkoutPriceBreakdown, confirmationFromObservation, dateActionFor, detectsActionCycle, effectiveRequestForOffer, meaningfulQuoteChange, quoteChanges, quoteComplete, quoteLines, quoteRequirementFindings, reviewBookingCard, withoutRedundantHotelRequirement } from '../starter/agent.ts';
 
 test('hotel identity stays in the selected site rather than becoming a room requirement', () => {
   assert.deepEqual(withoutRedundantHotelRequirement(['Hotel: Casa Halcy', 'Free cancellation', 'No breakfast'], 'Casa Halcy'), ['Free cancellation', 'No breakfast']);
@@ -139,6 +139,78 @@ test('a legitimate non-refundable Saver quote passes when flexibility is not req
   const unrestricted = { ...request, hardRequirements: [] };
   assert.equal(quoteComplete(fixture.quote, fixture.sources, fixture.selectedOffer, fixture.current, unrestricted, 'Casa Halcy'), true);
   assert.equal(quoteComplete(fixture.quote, fixture.sources, fixture.selectedOffer, fixture.current, request, 'Casa Halcy'), false);
+});
+
+test('the Saver payment split passes when selected terms say not refundable', () => {
+  const selectedText = "Classic double. Saver, non-refundable. The full amount is charged now and is not refundable if you cancel or don't show up.";
+  const currentText = [
+    'Casa Halcy', 'Classic double, saver, non-refundable rate',
+    '2026-11-06 to 2026-11-08 · 2 nights · 2 guests',
+    'Room €295.68', 'Tourist tax (€4.00 per person per night), paid at the hotel €16.00',
+    'Total €311.68', 'Charged now €295.68', 'Paid at the hotel €16.00',
+    'Your card will be charged €295.68 now. This rate is non-refundable.',
+  ].join('\n');
+  const selectedOffer = { observationId: 'selected', actionName: 'Select', context: selectedText };
+  const sources = [{ observationId: 'selected', role: 'selected-offer', text: selectedText }, { observationId: 'checkout', role: 'quote-page', text: currentText }];
+  const ref = (observationId, excerpt) => ({ observationId, excerpt });
+  const quote = {
+    room: 'Classic double', rate: 'Saver, non-refundable', checkin: '2026-11-06', checkout: '2026-11-08',
+    occupancy: '2 guests', cancellation: "The full amount is charged now and is not refundable if you cancel or don't show up.",
+    total: '€311.68', payNow: '€295.68', payLater: '€16.00', recipient: 'Casa Halcy',
+    guarantee: 'Your card will be charged €295.68 now.',
+    evidence: {
+      room: ref('selected', 'Classic double'), rate: ref('selected', 'Saver, non-refundable'),
+      dates: ref('checkout', '2026-11-06 to 2026-11-08 · 2 nights · 2 guests'),
+      occupancy: ref('checkout', '2 guests'), cancellation: ref('selected', "The full amount is charged now and is not refundable if you cancel or don't show up."),
+      total: ref('checkout', 'Total €311.68'), payNow: ref('checkout', 'Charged now €295.68'), payLater: ref('checkout', 'Paid at the hotel €16.00'),
+      recipient: ref('checkout', 'Casa Halcy'), guarantee: ref('checkout', 'Your card will be charged €295.68 now.'),
+      tax: ref('checkout', 'Tourist tax (€4.00 per person per night), paid at the hotel €16.00'),
+    },
+  };
+  const current = { id: 'checkout', url: 'http://hotel.test/payment', title: 'Payment', text: currentText, elements: [], excludedFrames: 0, blocked: false };
+  const unrestricted = { ...request, checkin: '2026-11-06', checkout: '2026-11-08', hardRequirements: [] };
+  const failures = [];
+  assert.equal(quoteComplete(quote, sources, selectedOffer, current, unrestricted, 'Casa Halcy', failures), true, failures.join(', '));
+  assert.deepEqual(failures, []);
+  const breakdown = checkoutPriceBreakdown(current);
+  assert.deepEqual(breakdown, ['Room: €295.68', 'Tourist tax (€4.00 per person per night), paid at the hotel €16.00']);
+  assert.deepEqual(quoteLines(quote, unrestricted, breakdown).slice(3, 9), [
+    'Room: €295.68', 'Tourist tax (€4.00 per person per night), paid at the hotel €16.00',
+    'Total: €311.68', 'Charged now: €295.68', 'Paid at hotel: €16.00',
+    'Card/payment terms: Your card will be charged €295.68 now.',
+  ]);
+  assert.deepEqual(quoteChanges({ ...quote, payNow: '€0.00', payLater: '€311.68' }, quote), [
+    'Charged now: €0.00 → €295.68', 'Paid at hotel: €311.68 → €16.00',
+  ]);
+  const revised = reviewBookingCard(quote, unrestricted, breakdown, { amount: '€295.68', label: 'Listed stay price', comparable: true });
+  assert.deepEqual(revised.priceChange, { beforeLabel: 'Room card showed', before: '€295.68', current: '€311.68', difference: '+€16.00' });
+  assert.equal(revised.buttons[0].label, 'I accept the updated €311.68 total');
+  assert.equal(revised.buttons[1].label, 'Decline and revise search');
+  assert.equal(revised.lines.includes('Room €295.68 + tourist tax €16.00'), true);
+  assert.equal(revised.lines.includes('Payment to Casa Halcy: €295.68 charged now; €16.00 at the hotel.'), true);
+  assert.equal(revised.lines.includes("Cancellation: Non-refundable if you cancel or don't show up."), true);
+  assert.equal(revised.lines.some(line => line.startsWith('Card terms:')), false, 'charge-now repetition is omitted');
+  assert.equal(revised.lines.some(line => line.startsWith('Total:')), false, 'current total is already prominent in the price comparison');
+  const unchanged = reviewBookingCard(quote, unrestricted, breakdown, { amount: '€311.68', label: 'Listed total incl. tax', comparable: true });
+  assert.equal(unchanged.priceChange, undefined);
+  assert.equal(unchanged.lines.includes('Total: €311.68'), true);
+  assert.equal(unchanged.buttons[0].label, 'I agree to these terms');
+  const uncertainBasis = reviewBookingCard(quote, unrestricted, breakdown, { amount: '€295.68', label: 'Listed price', comparable: false });
+  assert.deepEqual(uncertainBasis.priceChange, { beforeLabel: 'Room card showed', before: '€295.68', current: '€311.68' });
+  const changedTiming = reviewBookingCard(quote, unrestricted, breakdown,
+    { amount: '€311.68', label: 'Listed total incl. tax', comparable: true, paymentExpectation: 'nothing-now' });
+  assert.match(changedTiming.notice, /room card indicated nothing charged now.*checkout charges €295\.68 now/i);
+  assert.equal(changedTiming.buttons[0].label, 'I accept the revised terms');
+  const expectedTiming = reviewBookingCard(quote, unrestricted, breakdown,
+    { amount: '€295.68', label: 'Listed stay price', comparable: true, paymentExpectation: 'full-now' });
+  assert.equal(expectedTiming.notice, undefined);
+  assert.equal(meaningfulQuoteChange(quote, { ...quote }, breakdown, [...breakdown]), false);
+  assert.equal(meaningfulQuoteChange(quote, { ...quote }, breakdown, ['Room: €294.68', 'Tourist tax €17.00']), true);
+  assert.equal(meaningfulQuoteChange(quote, { ...quote, payNow: '€0.00' }, breakdown, breakdown), true);
+  const reapproved = reviewBookingCard({ ...quote, total: '€321.68' }, unrestricted, breakdown, undefined, quote);
+  assert.deepEqual(reapproved.priceChange, { beforeLabel: 'Previously agreed', before: '€311.68', current: '€321.68', difference: '+€10.00' });
+  quote.cancellation = 'Fully refundable';
+  assert.equal(quoteComplete(quote, sources, selectedOffer, current, unrestricted, 'Casa Halcy'), false);
 });
 
 test('explicit tax-in-total disclosure can prove taxes when no separate amount is shown', () => {
