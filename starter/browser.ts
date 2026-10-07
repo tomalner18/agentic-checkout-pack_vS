@@ -13,6 +13,7 @@ export interface PageElement {
   checked: boolean | null;
   disabled: boolean;
   options?: string[];
+  selectedOption?: string;
   /** A link target is kept inside the browser guard, never returned to the model. */
 }
 export interface Observation {
@@ -31,6 +32,7 @@ export type Action =
 export type Control = 'agent' | 'traveller' | 'verifying' | 'stopped';
 interface Guard {
   origin: string;
+  startUrl: string;
   control: Control;
   observation?: Observation;
   revision: number;
@@ -51,7 +53,7 @@ export function allowedUrl(raw: string, origin: string): boolean {
 export function protectPage(page: Page, hotelUrl: string): void {
   const origin = new URL(hotelUrl).origin;
   if (!allowedUrl(hotelUrl, origin)) throw new Error('UNSAFE_HOTEL_URL');
-  guards.set(page, { origin, control: 'agent', revision: 0, usedSubmissions: new Set() });
+  guards.set(page, { origin, startUrl: safeUrl(hotelUrl), control: 'agent', revision: 0, usedSubmissions: new Set() });
   page.on('framenavigated', frame => { if (frame === page.mainFrame()) {
     const guard = guards.get(page); if (guard) { guard.revision++; guard.observation = undefined; }
   } });
@@ -68,6 +70,16 @@ export function setControl(page: Page, control: Control): void {
   g.observation = undefined;
 }
 export function getControl(page: Page): Control { return guardFor(page).control; }
+
+/** Record the initial landing page, then reset only after returning to that entry. */
+export function beginNewSearch(page: Page): void {
+  const guard = guardFor(page);
+  if (guard.control !== 'agent' || !allowedUrl(page.url(), guard.origin)) throw new Error('NEW_SEARCH_NOT_AT_ENTRY');
+  if (!guard.usedSubmissions.size) guard.startUrl = safeUrl(page.url());
+  else if (safeUrl(page.url()) !== guard.startUrl) throw new Error('NEW_SEARCH_NOT_AT_ENTRY');
+  guard.usedSubmissions.clear();
+  guard.observation = undefined;
+}
 
 export async function openBrowser(opts: { headless?: boolean } = {}): Promise<{ browser: Browser; page: Page }> {
   const browser = await chromium.launch({ headless: opts.headless ?? false });
@@ -142,7 +154,8 @@ export async function observe(page: Page, maxText = 18000): Promise<Observation>
         checked: input.type === 'checkbox' || input.type === 'radio' ? input.checked : null,
         disabled: input.disabled === true || el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true',
         ...(el.tagName === 'INPUT' ? { filled: !!input.value, readOnly: input.readOnly, ...(dateField ? { dateValue: input.value.slice(0, 40) } : {}) } : {}),
-        ...(el.tagName === 'SELECT' ? { options: Array.from((el as HTMLSelectElement).options).map(o => o.label) } : {}),
+        ...(el.tagName === 'SELECT' ? { options: Array.from((el as HTMLSelectElement).options).map(o => o.label),
+          selectedOption: (el as HTMLSelectElement).selectedOptions[0]?.label || '' } : {}),
       });
     }
     // body.innerText does not descend into iframe documents. Form values are not read.

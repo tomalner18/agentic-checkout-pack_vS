@@ -34,6 +34,18 @@ export interface OfferCandidate {
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[-–]/g, ' ').replace(/\s+/g, ' ').trim();
+const roomNameKey = (value: string) => value.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+rooms?$/, '').trim();
+
+export function roomNamesEquivalent(requested: string, observed: string): boolean {
+  const wanted = roomNameKey(requested);
+  return !!wanted && wanted === roomNameKey(observed);
+}
+
+export function roomNameFromContext(context: string): string {
+  return context.replace(/\s+/g, ' ').trim().split(/\s+[·•|—–]\s+|\.\s+|,\s+/)[0]
+    .replace(/^(?:select|choose|pick)\s+/i, '').replace(/\s+\d{1,3}\s*(?:m²|sqm|sq\.?\s?m).*$/i, '').slice(0, 90);
+}
 function featureMatch(context: string, preference: string): boolean {
   const text = norm(context);
   const feature = norm(preference.replace(/\s+if available$/i, ''));
@@ -103,6 +115,8 @@ function classify(context: string, request: SearchRequest, price: ReturnType<typ
         nights: stayNights(request.checkin, request.checkout), complete: price.priceComplete });
       if (status === 'conflict') hardConflicts.push(requirement);
       else if (status !== 'met') unverified.push(requirement);
+    } else if (/\brooms?\s*$/i.test(requirement)) {
+      if (!roomNamesEquivalent(requirement, roomNameFromContext(context))) unverified.push(requirement);
     } else if (!text.includes(norm(requirement))) unverified.push(requirement);
   }
   for (const exclusion of request.exclusions) {
@@ -198,8 +212,7 @@ function shortStayDates(checkin: string, checkout: string): string {
 /** A compact, evidence-bound display model for a listing. Checkout owns the final quote. */
 export function roomOptionDetails(offer: OfferCandidate, request: SearchRequest): RoomOptionDetails {
   const context = offer.context.replace(/\s+/g, ' ').trim();
-  const name = context.split(/\s+[·•|—–]\s+|\.\s+|,\s+/)[0]
-    .replace(/^(?:select|choose|pick)\s+/i, '').replace(/\s+\d{1,3}\s*(?:m²|sqm|sq\.?\s?m).*$/i, '').slice(0, 90) || 'Room and rate';
+  const name = roomNameFromContext(context) || 'Room and rate';
   const cancellation = context.match(/free cancellation[^.!?]*(?:\.|$)/i)?.[0]?.trim() ||
     (/(?:non[ -]?refundable|not refundable|no refunds?)/i.test(context) ? 'Non-refundable rate shown' :
       /(?:fully )?refundable/i.test(context) ? 'Refundable rate shown; deadline to verify' : 'Cancellation terms not stated');

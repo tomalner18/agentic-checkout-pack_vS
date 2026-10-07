@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { acceptedExceptionLabels, checkoutPriceBreakdown, confirmationFromObservation, dateActionFor, detectsActionCycle, effectiveRequestForOffer, meaningfulQuoteChange, quoteChanges, quoteComplete, quoteLines, quoteRequirementFindings, reviewBookingCard, withoutRedundantHotelRequirement } from '../starter/agent.ts';
+import { acceptedExceptionLabels, arrivalActionFor, checkoutPriceBreakdown, confirmationFromObservation, dateActionFor, detectsActionCycle, effectiveRequestForOffer, holdExpiryFromObservation, hotelSaysHoldExpired, meaningfulQuoteChange, quoteChanges, quoteComplete, quoteLines, quoteRequirementFindings, reviewBookingCard, withoutRedundantHotelRequirement } from '../starter/agent.ts';
+
+test('a visible hold countdown yields an estimate and hotel release text is distinct from a timer reaching zero', () => {
+  const seen = { id: 'hold', url: 'http://hotel.test/payment', title: 'Payment',
+    text: "We're holding this room for you for 11:51", elements: [], excludedFrames: 1, blocked: false };
+  assert.equal(holdExpiryFromObservation(seen, 1_000_000), 1_711_000);
+  assert.equal(hotelSaysHoldExpired(seen), false);
+  assert.equal(holdExpiryFromObservation({ ...seen, text: 'Payment expires at 11:51' }, 1_000_000), null);
+  assert.equal(holdExpiryFromObservation({ ...seen, text: 'Hold expires in 11:99' }, 1_000_000), null);
+  assert.equal(holdExpiryFromObservation({ ...seen, blocked: true }, 1_000_000), null);
+  assert.equal(hotelSaysHoldExpired({ ...seen, text: 'Your hold has expired' }), true);
+  assert.equal(hotelSaysHoldExpired({ ...seen, text: 'We held your room for 12 minutes and it has now been released. Please start again.' }), true);
+  assert.equal(hotelSaysHoldExpired({ ...seen, text: 'Your bank approval is pending' }), false);
+});
 
 test('hotel identity stays in the selected site rather than becoming a room requirement', () => {
   assert.deepEqual(withoutRedundantHotelRequirement(['Hotel: Casa Halcy', 'Free cancellation', 'No breakfast'], 'Casa Halcy'), ['Free cancellation', 'No breakfast']);
@@ -8,6 +21,17 @@ test('hotel identity stays in the selected site rather than becoming a room requ
 });
 
 const request = { checkin: '2026-11-13', checkout: '2026-11-15', adults: 2, hardRequirements: ['Refundable cancellation'], preferences: [], exclusions: [] };
+
+test('estimated arrival selects only an unambiguous matching guest-details window', () => {
+  const arrival = { id: 'current:arrival', tag: 'select', name: 'Estimated arrival', disabled: false,
+    options: ["I don't know yet", 'Before 14:00', '14:00 to 18:00', '18:00 to 22:00', 'After 22:00'],
+    selectedOption: "I don't know yet" };
+  const seen = { id: 'current', blocked: false, elements: [arrival] };
+  assert.deepEqual(arrivalActionFor(seen, '23:00'), { kind: 'select', id: arrival.id, value: 'After 22:00' });
+  assert.equal(arrivalActionFor({ ...seen, elements: [{ ...arrival, selectedOption: 'After 22:00' }] }, '23:00'), null);
+  assert.equal(arrivalActionFor({ ...seen, elements: [arrival, { ...arrival, id: 'other' }] }, '23:00'), null);
+  assert.equal(arrivalActionFor(seen, null), null);
+});
 const element = (id, name, overrides = {}) => ({ id, tag: 'button', type: null, name, checked: null, disabled: false, ...overrides });
 const obs = (elements, overrides = {}) => ({ id: 'current-observation', url: 'http://hotel.test/search', title: 'Choose dates', text: '', elements, excludedFrames: 0, blocked: false, ...overrides });
 
@@ -295,6 +319,15 @@ test('unknown offer constraints stay active until the prepared quote proves or c
   assert.deepEqual(acceptedExceptionLabels(accepted, 'offer-b', 3), []);
   const overlapping = { ...request, hardRequirements: ['Refundable cancellation', 'Refundable cancellation with breakfast'] };
   assert.deepEqual(effectiveRequestForOffer(overlapping, accepted, 'offer-a', 3).hardRequirements, ['Refundable cancellation with breakfast'], 'exceptions use exact identities');
+});
+
+test('prepared quote verifies the named room despite a generic room suffix', () => {
+  const fixture = quoteFixture();
+  const roomRequest = { ...request, hardRequirements: ['Classic double room'] };
+  assert.deepEqual(quoteRequirementFindings({ ...fixture.quote, room: 'Classic double' }, fixture.current, roomRequest),
+    { conflicts: [], unverified: [] });
+  assert.deepEqual(quoteRequirementFindings({ ...fixture.quote, room: 'Superior double' }, fixture.current, roomRequest,
+    'Classic double appears elsewhere on the page'), { conflicts: [], unverified: ['Classic double room'] });
 });
 
 test('cancellation can be verified at checkout when the selected rate card omitted its policy', () => {

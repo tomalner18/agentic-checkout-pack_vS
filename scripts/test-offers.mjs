@@ -21,6 +21,20 @@ test('initial choices exclude known hard conflicts, keep unknowns explicit, and 
   assert.equal(rankOffers(offers.filter(eligible), 'initial')[0].key, offers[1].key);
 });
 
+test('a generic room suffix does not hide a matching room or admit a different room', () => {
+  const roomRequest = { ...request, hardRequirements: ['Classic double room'], preferences: ['Late check-in around 23:00'], exclusions: [] };
+  const offers = observedOffers(seen(
+    select('classic', 'Classic double 18 m², courtyard side. Flexible. Total €444. 2 nights, room only.'),
+    select('superior', 'Superior double 26 m², balcony. Flexible. Total €546. 2 nights, room only.'),
+    select('upgraded', 'Classic double deluxe 26 m², balcony. Flexible. Total €600. 2 nights, room only.'),
+  ), roomRequest);
+  assert.equal(eligible(offers[0]), true);
+  assert.deepEqual(offers[0].unverified, []);
+  assert.deepEqual(offers[0].softMisses, ['Late check-in around 23:00']);
+  assert.deepEqual(offers[1].unverified, ['Classic double room']);
+  assert.deepEqual(offers[2].unverified, ['Classic double room']);
+});
+
 test('recovery uses absolute distance only for comparable prices and leaves unknown basis last', () => {
   const offers = observedOffers(seen(
     select('a', 'A. Flexible. Free cancellation. €300. 2 nights, room only.'),

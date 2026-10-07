@@ -1,1 +1,6 @@
-{ "Casa Halcy": "http://localhost:4100" }
+{
+  "Casa Halcy": "http://localhost:4100",
+  "Hotel Planisphere Demo": "https://hotel-example-site.takeyaqa.dev/en-US/",
+  "Norwood Demo": "https://openfolio.app/norwood",
+  "Bedify Demo Hotel": "https://bedify.net/bookingengine/"
+}

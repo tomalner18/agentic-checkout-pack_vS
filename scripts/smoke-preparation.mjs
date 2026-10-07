@@ -4,9 +4,10 @@
 process.env.HEADLESS = '1';
 const { createAgent } = await import('../starter/agent.ts');
 
-const text = 'Book Casa Halcy for 2 adults, 13 to 15 November 2026. River view if possible, refundable, no breakfast.';
+const text = 'Book Casa Halcy for 2 adults, 13 to 15 November 2026. River view if possible, refundable, no breakfast. I expect to arrive around 23:00.';
 const events = [];
 let reachedQuote = false;
+let arrivalSelected = false;
 const model = {
   id: 'scripted-smoke',
   async complete(req) {
@@ -14,10 +15,10 @@ const model = {
     const keys = Object.keys(req.jsonSchema.properties);
     let result;
     if (keys.includes('hardAdd')) {
-      result = { hotelMention: 'Casa Halcy', checkin: '2026-11-13', checkout: '2026-11-15', adults: 2,
-        clearHotel: false, clearCheckin: false, clearCheckout: false, clearAdults: false,
+      result = { hotelMention: 'Casa Halcy', checkin: '2026-11-13', checkout: '2026-11-15', estimatedArrival: '23:00', adults: 2,
+        clearHotel: false, clearCheckin: false, clearCheckout: false, clearAdults: false, clearEstimatedArrival: false,
         hardAdd: ['Refundable cancellation'], hardRemove: [], preferenceAdd: ['River view'], preferenceRemove: [],
-        exclusionAdd: ['Breakfast'], exclusionRemove: [], replaceRanking: false, rankingPriorities: [] };
+        exclusionAdd: ['Breakfast'], exclusionRemove: [], specialAdd: [], specialRemove: [], replaceRanking: false, rankingPriorities: [] };
     } else if (keys.includes('nonBindingEvidence')) {
       const o = input.observation;
       const find = (predicate) => o.elements.find(predicate);
@@ -35,6 +36,7 @@ const model = {
           if (!e) e = find(x => x.name === 'Select' && /Flexible/i.test(x.context || ''));
         }
       } else if (/Your details/i.test(o.title)) {
+        arrivalSelected ||= o.elements.some(x => x.name === 'Estimated arrival' && x.selectedOption === 'After 22:00');
         e = find(x => /Breakfast|offers and news/i.test(x.name) && x.checked);
         if (e) kind = 'check';
         if (!e) {
@@ -79,6 +81,6 @@ await createAgent(() => model)(text, chat, {
   hotels: { 'Casa Halcy': 'http://localhost:4100' },
 });
 const options = events.find(e => e.type === 'options');
-console.log(JSON.stringify({ initialChoices: options?.cards.length || 0, reachedQuote, lastMessage: events.filter(e => e.type === 'say').at(-1)?.message }));
-if (!options || !reachedQuote) process.exitCode = 1;
+console.log(JSON.stringify({ initialChoices: options?.cards.length || 0, reachedQuote, arrivalSelected, lastMessage: events.filter(e => e.type === 'say').at(-1)?.message }));
+if (!options || !reachedQuote || !arrivalSelected) process.exitCode = 1;
 setTimeout(() => process.exit(process.exitCode || 0), 100);

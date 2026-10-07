@@ -57,11 +57,14 @@ export interface Chat {
   invalidate?(): void;
   /** Short progress label, cleared when work stops. */
   progress?(label: string | null): void;
-  rememberRequest?(hotel: string, request: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[] }): void;
+  rememberRequest?(hotel: string, request: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[]; estimatedArrival?: string | null; specialRequests?: string[] }): void;
   rememberDraft?(draft: RequestDraft): void;
   setIntake?(active: boolean): void;
   takePending?(): string | undefined;
   privateQuote?(lines: string[] | null): void;
+  holdExpiresAt?(value: number | null): void;
+  holdReleased?(): void;
+  holdExpired?(): void;
   outcomeUnknown?(): void;
   confirmed?(reference: string): void;
   /** Wait for the traveller's next message. */
@@ -77,7 +80,7 @@ export interface Context {
   hotels: Record<string, string>;
   signal?: AbortSignal;
   revision?: number;
-  priorRequest?: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[] };
+  priorRequest?: { checkin: string; checkout: string; adults: number | null; hardRequirements: string[]; preferences: string[]; exclusions: string[]; estimatedArrival?: string | null; specialRequests?: string[] };
   priorHotel?: string;
   draft?: RequestDraft;
 }
@@ -96,6 +99,8 @@ export interface RequestDraft {
   hardRequirements: string[];
   preferences: string[];
   exclusions: string[];
+  estimatedArrival: string | null;
+  specialRequests: string[];
   rankingPriorities: RankingPriority[];
 }
 

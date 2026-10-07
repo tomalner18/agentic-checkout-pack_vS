@@ -72,8 +72,39 @@ test('handoff waits for an explicit check and offers only check or stop', async 
   } finally { await app.close(); }
 });
 
-test('agreement and verified booking settle their original cards in replayed history', async () => {
+test('hold estimate appears on handoff and an explicit no-payment answer settles expiry recovery', async () => {
+  const deadline = Date.now() + 11 * 60_000;
   const app = await harness(async (_message, chat) => {
+    chat.privateQuote(['Superior double', '€420 total']);
+    chat.holdExpiresAt(deadline);
+    if (await chat.choose({ title: 'You control the hotel browser', lines: [], buttons: [{ id: 'check', label: 'Check booking' }] }) !== 'check') return;
+    chat.holdReleased();
+    if (await chat.choose({ title: 'Room hold expired', lines: ['The hotel released the room.'], buttons: [
+      { id: 'restart', label: 'No payment attempted · search again' }, { id: 'uncertain', label: 'Payment attempted / unsure' },
+    ] }) === 'restart') chat.holdExpired();
+  });
+  try {
+    await app.post('/send', { text: 'Book Casa Halcy' });
+    let snapshot = await app.until(events => !!latestCard(events, 'You control the hotel browser'));
+    const handoff = latestCard(snapshot, 'You control the hotel browser');
+    assert.equal(snapshot.filter(e => e.type === 'hold').at(-1)?.expiresAt, deadline);
+    assert.equal(handoff.card.holdExpiresAt, undefined, 'the timer is shown once in the persistent chat header');
+    await app.post('/press', { card: handoff.id, button: 'check' });
+    snapshot = await app.until(events => !!latestCard(events, 'Room hold expired'));
+    const expiry = latestCard(snapshot, 'Room hold expired');
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === handoff.id).map(e => e.state), ['expired']);
+    assert.equal(snapshot.filter(e => e.type === 'hold').at(-1)?.expiresAt, null);
+    await app.post('/press', { card: expiry.id, button: 'restart' });
+    snapshot = await app.until(events => events.some(e => e.type === 'card_result' && e.card === handoff.id));
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === handoff.id).map(e => e.state), ['expired']);
+    assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === expiry.id).map(e => e.state), ['restarted']);
+  } finally { await app.close(); }
+});
+
+test('agreement and verified booking settle their original cards in replayed history', async () => {
+  const deadline = Date.now() + 10 * 60_000;
+  const app = await harness(async (_message, chat) => {
+    chat.holdExpiresAt(deadline);
     if (await chat.choose({ title: 'Review this hotel booking', lines: ['Superior double', '€420 total'], buttons: [{ id: 'agree', label: 'I agree' }] }) !== 'agree') return;
     chat.privateQuote(['Superior double', '€420 total']);
     if (await chat.choose({ title: 'You control the hotel browser', lines: [], buttons: [{ id: 'check', label: 'Check booking' }] }) !== 'check') return;
@@ -84,9 +115,11 @@ test('agreement and verified booking settle their original cards in replayed his
     await app.post('/send', { text: 'Book a room' });
     let snapshot = await app.until(events => !!latestCard(events, 'Review this hotel booking'));
     const review = latestCard(snapshot, 'Review this hotel booking');
+    assert.equal(snapshot.filter(e => e.type === 'hold').at(-1)?.expiresAt, deadline);
     await app.post('/press', { card: review.id, button: 'agree' });
     snapshot = await app.until(events => !!latestCard(events, 'You control the hotel browser'));
     const handoff = latestCard(snapshot, 'You control the hotel browser');
+    assert.equal(snapshot.filter(e => e.type === 'hold').at(-1)?.expiresAt, deadline);
     assert.deepEqual(snapshot.filter(e => e.type === 'card_result' && e.card === review.id).map(e => e.state), ['agreed']);
     await app.post('/press', { card: handoff.id, button: 'check' });
     snapshot = await app.until(events => !!latestCard(events, 'Hotel booking confirmed'));
@@ -140,6 +173,10 @@ test('ordinary stop and edit language does not treat information questions as mu
   assert.equal(isEdit('Please change to three guests'), true);
   assert.equal(isEdit('Can I change the dates?'), false);
   assert.equal(isEdit('What is the cancellation policy?'), false);
+  assert.equal(isEdit("I'll arrive around 23:00"), true);
+  assert.equal(isEdit('Change my estimated arrival to 21:00'), true);
+  assert.equal(isEdit('Add a special request for a quiet room'), true);
+  assert.equal(isEdit('Update my special request'), true);
 });
 
 test('private edit suspends checking; keep restores a fresh control and stale presses cannot verify', async () => {

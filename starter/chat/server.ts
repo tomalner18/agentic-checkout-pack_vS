@@ -23,7 +23,8 @@ type Event =
   | { type: "carousel"; cards: { id: string; card: Omit<Card, "image"> & { image?: string } }[] }
   | { type: "pressed"; card: string; button: string }
   | { type: "handoff"; card: string; state: "checking" }
-  | { type: "card_result"; card: string; state: "agreed" | "declined" | "changed" | "confirmed" | "unresolved" | "cancelled" | "superseded" }
+  | { type: "hold"; expiresAt: number | null }
+  | { type: "card_result"; card: string; state: "agreed" | "declined" | "changed" | "confirmed" | "unresolved" | "cancelled" | "superseded" | "expired" | "restarted" }
   | { type: "activity"; state: "working" | "checking" | "idle"; label?: string }
   | { type: "busy"; on: boolean }
   | { type: "progress"; label: string | null }
@@ -36,8 +37,9 @@ export function isStop(text: string): boolean {
 export function isEdit(text: string): boolean {
   const value = text.trim();
   if (/^(?:can|could|would|may|how|what|when|do|does|is|are)\b/i.test(value) && /\?$/.test(value)) return false;
-  return /\b(?:change|edit|update|revise|different|instead|make it|switch|move|shift|set|extend|shorten)\b/i.test(value) &&
-    /\b(?:dates?|days?|nights?|rooms?|rates?|guests?|adults?|people|persons?|budget|price|breakfast|view|hotel|refund|cancel|check-?in|check-?out|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\b\d{4}-\d{2}-\d{2}\b/i.test(value);
+  if (/\b(?:arriv(?:e|al|ing)?|land(?:ing)?|flight)\b/i.test(value) && /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(value)) return true;
+  return /\b(?:add|remove|change|edit|update|revise|different|instead|make it|switch|move|shift|set|extend|shorten)\b/i.test(value) &&
+    /\b(?:dates?|days?|nights?|rooms?|rates?|guests?|adults?|people|persons?|budget|price|breakfast|view|hotel|refund|cancel|check-?in|check-?out|arrival|flight|landing|special requests?|notes?|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\b\d{4}-\d{2}-\d{2}\b/i.test(value);
 }
 
 export function createChatServer(agentImpl: Agent = agent, port = PORT): http.Server {
@@ -65,6 +67,8 @@ let outcomeUnknown = false;
 let confirmedReference: string | null = null;
 let reviewCardId: string | null = null;
 let handoffCardId: string | null = null;
+let recoveryCardId: string | null = null;
+let holdExpiresAt: number | null = null;
 const settledCards = new Set<string>();
 let suspendedCheckoutChoice: { allowed: Set<string>; resolve: (button: string) => void; title: string } | null = null;
 const inbox: string[] = [];
@@ -73,6 +77,12 @@ const waitingPress = new Map<string, { allowed: Set<string>; resolve: (button: s
 
 function settleCard(id: string | null, state: Extract<Event, { type: 'card_result' }>['state']) {
   if (id && !settledCards.has(id)) { settledCards.add(id); emit({ type: 'card_result', card: id, state }); }
+}
+
+function setHoldExpiresAt(value: number | null) {
+  if (holdExpiresAt === value) return;
+  holdExpiresAt = value;
+  emit({ type: 'hold', expiresAt: value });
 }
 
 function invalidate() {
@@ -92,6 +102,7 @@ function chatFor(epoch: number): Chat {
     const id = randomBytes(4).toString("hex");
     if (card.title === 'Review this hotel booking') reviewCardId = id;
     if (card.title === 'You control the hotel browser') handoffCardId = id;
+    if (card.title === 'Room hold expired') recoveryCardId = id;
     const image = card.image ? `data:image/png;base64,${card.image.toString("base64")}` : undefined;
     emit({ type: "card", id, card: { ...card, image } });
     return id;
@@ -138,8 +149,11 @@ function chatFor(epoch: number): Chat {
   setIntake(active) { if (current()) intake = active; },
   takePending() { return current() ? inbox.shift() : undefined; },
   privateQuote(lines) { if (current()) { reviewedQuote = lines; if (lines) settleCard(reviewCardId, 'agreed'); } },
+  holdExpiresAt(value) { if (current()) setHoldExpiresAt(value); },
+  holdReleased() { if (current()) { settleCard(handoffCardId, 'expired'); setHoldExpiresAt(null); } },
+  holdExpired() { if (current()) { settleCard(handoffCardId, 'expired'); reviewedQuote = null; outcomeUnknown = false; setHoldExpiresAt(null); } },
   outcomeUnknown() { if (current()) { outcomeUnknown = true; settleCard(handoffCardId, 'unresolved'); } },
-  confirmed(reference) { if (current()) { confirmedReference = reference; reviewedQuote = null; settleCard(handoffCardId, 'confirmed'); } },
+  confirmed(reference) { if (current()) { confirmedReference = reference; reviewedQuote = null; settleCard(handoffCardId, 'confirmed'); setHoldExpiresAt(null); } },
 };
   return chat;
 }
@@ -163,6 +177,7 @@ async function run(text: string) {
   const chat = chatFor(epoch);
   running = true;
   intake = false;
+  setHoldExpiresAt(null);
   emit({ type: "busy", on: true });
   setActivity('working', 'Getting started');
   try {
@@ -176,6 +191,8 @@ async function run(text: string) {
     if (epoch === revision) {
       settleCard(reviewCardId, 'changed');
       settleCard(handoffCardId, 'unresolved');
+      settleCard(recoveryCardId, 'unresolved');
+      setHoldExpiresAt(null);
       const resumeQueuedIntake = intake && !confirmedReference && !reviewedQuote;
       running = false;
       intake = false;
@@ -195,6 +212,8 @@ async function run(text: string) {
 function stopCurrent(message = 'I stopped helping. This does not cancel a hotel reservation; the hotel window remains available.') {
   settleCard(reviewCardId, 'cancelled');
   settleCard(handoffCardId, 'cancelled');
+  settleCard(recoveryCardId, 'cancelled');
+  setHoldExpiresAt(null);
   if (controller) controller.abort();
   suspendedCheckoutChoice?.resolve('stop');
   suspendedCheckoutChoice = null;
@@ -223,8 +242,8 @@ function showPrivateEditDialog(edit: string) {
   // Submitted / not sure choice may resolve that wait as a verification request.
   emit({ type: 'invalidate' });
   const id = randomBytes(4).toString('hex');
-  emit({ type: 'card', id, card: { title: 'Change this checkout?', lines: ['Has the booking already been submitted in the hotel window?', 'I will not inspect the hotel window while this decision is open.'], buttons: [
-    { id: 'not-submitted', label: 'Not submitted — start a new search' },
+  emit({ type: 'card', id, card: { title: 'Change this checkout?', lines: ['Have you attempted payment or submitted the booking in the hotel window?', 'I will not inspect the hotel window while this decision is open.'], buttons: [
+    { id: 'not-submitted', label: 'Neither attempted — start a new search' },
     { id: 'submitted', label: 'Submitted / not sure — check booking' },
     { id: 'keep', label: 'Keep current checkout' },
   ] } });
@@ -341,6 +360,7 @@ return http.createServer(async (req, res) => {
         emit({ type: "pressed", card, button });
         if (pending.title === 'Review this hotel booking' && (button === 'edit' || button === 'stop')) settleCard(card, 'declined');
         if (pending.title === 'You control the hotel browser' && button === 'stop') settleCard(card, 'cancelled');
+        if (pending.title === 'Room hold expired') settleCard(card, button === 'restart' ? 'restarted' : 'unresolved');
         if (pending.title === 'You control the hotel browser' && button === 'check') {
           emit({ type: 'handoff', card, state: 'checking' });
           setActivity('checking', 'Checking hotel confirmation');
@@ -368,6 +388,8 @@ return http.createServer(async (req, res) => {
       confirmedReference = null;
       reviewCardId = null;
       handoffCardId = null;
+      recoveryCardId = null;
+      holdExpiresAt = null;
       settledCards.clear();
       emit({ type: "reset" });
       res.writeHead(204);

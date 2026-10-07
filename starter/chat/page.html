@@ -13,11 +13,14 @@
       button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
       button:disabled { cursor: not-allowed; }
       .phone { width: min(100%, 460px); height: 100vh; height: 100dvh; margin: auto; display: flex; flex-direction: column; background: var(--paper); box-shadow: 0 0 60px #1f37371a; }
-      header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; background: var(--white); border-bottom: 1px solid var(--line); }
-      .brand { display: flex; gap: 10px; align-items: center; }
+      header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 14px 12px; background: var(--white); border-bottom: 1px solid var(--line); }
+      .brand { display: flex; flex: 0 0 auto; gap: 8px; align-items: center; }
       .brand-mark { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; background: var(--green); color: #fff8df; font: 21px/1 Georgia, serif; }
       .brand-name { font: 21px/1 Georgia, serif; letter-spacing: -.04em; }
-      .header-action { border: 0; background: transparent; color: var(--muted); border-radius: 9px; padding: 9px 10px; }
+      .header-hold { flex: 0 0 auto; padding: 6px 8px; border-radius: 8px; background: #eaf2e9; color: var(--green-dark); font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .header-hold[hidden] { display: none; }
+      .header-hold.may-expire { background: #f8f3e7; color: #765b2b; }
+      .header-action { flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); border-radius: 9px; padding: 9px 5px; white-space: nowrap; }
       .header-action:hover { background: var(--green-soft); color: var(--green-dark); }
       .header-action:active { transform: translateY(1px); }
       .header-action:disabled { opacity: .45; }
@@ -94,8 +97,8 @@
       .card.is-settled.expanded .card-result-chevron { transform: rotate(180deg); }
       .card[data-result="declined"] .card-result, .card[data-result="cancelled"] .card-result { background: #f5f0ee; color: #734c42; }
       .card[data-result="declined"] .card-result-icon, .card[data-result="cancelled"] .card-result-icon { background: #925b4f; }
-      .card[data-result="changed"] .card-result, .card[data-result="unresolved"] .card-result, .card[data-result="superseded"] .card-result { background: #f8f3e7; color: #765b2b; }
-      .card[data-result="changed"] .card-result-icon, .card[data-result="unresolved"] .card-result-icon, .card[data-result="superseded"] .card-result-icon { background: #a37d39; }
+      .card[data-result="changed"] .card-result, .card[data-result="unresolved"] .card-result, .card[data-result="superseded"] .card-result, .card[data-result="expired"] .card-result, .card[data-result="restarted"] .card-result { background: #f8f3e7; color: #765b2b; }
+      .card[data-result="changed"] .card-result-icon, .card[data-result="unresolved"] .card-result-icon, .card[data-result="superseded"] .card-result-icon, .card[data-result="expired"] .card-result-icon, .card[data-result="restarted"] .card-result-icon { background: #a37d39; }
       .room-card { border-color: #d5ddd5; box-shadow: 0 7px 22px #19352a0c; }
       .room-card .body { padding: 15px 17px 10px; }
       .room-kicker { color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
@@ -134,7 +137,7 @@
   </head>
   <body>
     <div class="phone">
-      <header><div class="brand"><span class="brand-mark" aria-hidden="true">h</span><span class="brand-name">Halcy</span></div><button class="header-action" id="reset" title="Clear the conversation">Clear chat</button></header>
+      <header><div class="brand"><span class="brand-mark" aria-hidden="true">h</span><span class="brand-name">Halcy</span></div><div class="header-hold" id="hold-status" role="status" aria-live="off" hidden></div><button class="header-action" id="reset" title="Clear the conversation">Clear chat</button></header>
       <div id="log" role="log" aria-label="Travel conversation" aria-live="polite" aria-relevant="additions text"></div>
       <div id="examples" aria-label="Example requests"></div>
       <form id="form"><textarea id="text" aria-label="Message Halcy" placeholder="Ask about your stay…" rows="1"></textarea><button id="send" type="submit" disabled>Send</button></form>
@@ -142,6 +145,21 @@
     <script>
       const log = document.getElementById("log");
       const cards = new Map();
+      const holdStatus = document.getElementById("hold-status");
+      let holdExpiresAt = null;
+      function updateHoldTime() {
+        holdStatus.hidden = !Number.isFinite(holdExpiresAt);
+        if (holdStatus.hidden) return;
+        const remaining = Math.max(0, Math.ceil((holdExpiresAt - Date.now()) / 1000));
+        holdStatus.classList.toggle("may-expire", remaining === 0);
+        holdStatus.setAttribute("aria-live", remaining === 0 ? "polite" : "off");
+        const label = remaining ? `Hold ~${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}` : "Hold may be over";
+        holdStatus.title = remaining ? `Hotel room hold: about ${Math.floor(remaining / 60)} minutes and ${remaining % 60} seconds left. This is an estimate from the hotel page.` : "The hotel hold may have ended. Check the hotel browser to verify.";
+        holdStatus.setAttribute("aria-label", holdStatus.title);
+        if (holdStatus.textContent !== label) holdStatus.textContent = label;
+      }
+      setInterval(updateHoldTime, 1000);
+      document.addEventListener("visibilitychange", updateHoldTime);
       const post = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
       const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
       let activityEl = null;
@@ -384,6 +402,8 @@
           unresolved: ["?", "Confirmation not verified"],
           cancelled: ["×", "Assistance stopped"],
           superseded: ["!", "Checking paused"],
+          expired: ["!", "Hotel hold released"],
+          restarted: ["↻", "Searching again"],
         };
         const [iconText, label] = outcomes[state] || outcomes.unresolved;
         el.classList.add("is-settled");
@@ -531,11 +551,12 @@
         if (e.type === "carousel") carousel(e.cards);
         if (e.type === "pressed") pressed(e.card, e.button);
         if (e.type === "handoff") handoff(e.card, e.state);
+        if (e.type === "hold") { holdExpiresAt = e.expiresAt; updateHoldTime(); }
         if (e.type === "card_result") cardResult(e.card, e.state);
         if (e.type === "activity") activity(e.state, e.label);
         if (e.type === "busy") document.getElementById("reset").disabled = e.on;
         if (e.type === "invalidate") invalidate();
-        if (e.type === "reset") { log.replaceChildren(); cards.clear(); activityEl = null; activityState = "idle"; }
+        if (e.type === "reset") { log.replaceChildren(); cards.clear(); activityEl = null; activityState = "idle"; holdExpiresAt = null; updateHoldTime(); }
         if (stick || e.type === "reset" || e.type === "message" && e.from === "traveller") scrollToEnd();
       };
 
